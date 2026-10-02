@@ -3,7 +3,7 @@
 //
 // Usage:
 //   node render.mjs <project> [ids...] [--all] [--changed] [--draft | --final] [--mblur id,id] [--workers n]
-//                   [--timeout seconds] [--check | --no-check]
+//                   [--timeout seconds] [--check | --no-check] [--shutter 0.5] [--mblur-samples 8]
 //
 //   ids          the scenes to render; they run in the order of the scene list, never in parallel
 //   --all        every scene of the project
@@ -12,6 +12,10 @@
 //   --final      full quality. This is the default.
 //   --mblur      real motion blur for these scenes: 4x the frames, blended. A scene keeps it on later renders;
 //                "--mblur none" turns it off. A draft never blurs.
+//   --shutter 0.5        blend the samples over half of each frame instead of all of it (8x the frames at 30 fps):
+//                        the move stays readable up to about 48 px per frame instead of 16
+//   --mblur-samples 8    8 samples over the whole frame (also 8x the frames): smoother, softer
+//                        Both are kept for the scene on later renders. The engine captures at most 240 fps.
 //   --workers    browser workers of the engine (default: the engine decides; 1 uses the least memory)
 //   --timeout    seconds allowed per scene before the one retry in low-memory mode (default: by frame count)
 //   --check      run the engine's layout and runtime check before the render. On by default for a final render,
@@ -59,6 +63,17 @@ const blurArg = args.mblur === undefined || args.mblur === true ? [] : String(ar
 const blurOff = blurArg.includes('none');
 const blurBad = blurArg.filter((id) => id !== 'none' && !t.scenes.some((s) => s.id === id));
 if (blurBad.length) die(`--mblur names scenes that are not in the list: ${blurBad.join(', ')}`, 2);
+// Motion blur samples: `samples` captures blended into one frame, spread over `shutter` of the frame interval.
+// The capture runs at fps x samples / shutter, which must be a whole multiple of the fps and at most 240.
+const samplesArg = args['mblur-samples'] === undefined ? null : Number(args['mblur-samples']);
+const shutterArg = args.shutter === undefined ? null : Number(args.shutter);
+if (samplesArg !== null && !(Number.isInteger(samplesArg) && samplesArg >= 2 && samplesArg <= 8)) die('--mblur-samples must be a whole number from 2 to 8.', 2);
+if (shutterArg !== null && !(shutterArg > 0 && shutterArg <= 1)) die('--shutter must be above 0 and at most 1 (0.5 is half the frame).', 2);
+if (samplesArg !== null || shutterArg !== null) {
+  const period = (samplesArg || 4) / (shutterArg || 1);
+  if (Math.abs(period - Math.round(period)) > 1e-9) die(`--mblur-samples ${samplesArg || 4} over --shutter ${shutterArg || 1} is not a whole number of sub-frames per frame. Try --shutter 0.5 or 1.`, 2);
+}
+const MAX_CAPTURE_FPS = 240;
 
 for (const tool of ['ffmpeg', 'ffprobe']) {
   if (!findTool(tool)) die(`${tool} was not found. Run the doctor: node "${fwd(path.join(SKILL_ROOT, 'scripts', 'doctor.mjs'))}"`, 3);
@@ -204,7 +219,7 @@ async function renderWithEngine(dir, rawFile, captureFps, frames) {
   return { ok: false, attempts: tries.length, error: last };
 }
 
-async function renderMotion(scene, state, wantBlur) {
+async function renderMotion(scene, state, wantBlur, blurSet = { samples: 4, shutter: 1 }) {
   const res = { warnings: [] };
   const info = compositionInfo(state.dir);
   if (!info.ok) return { ...res, error: info.error };
@@ -235,21 +250,27 @@ async function renderMotion(scene, state, wantBlur) {
 
   const blur = wantBlur && !draft;
   if (wantBlur && draft) res.warnings.push('motion blur is skipped in a draft');
-  const captureFps = blur ? fps * 4 : draft ? draftFps() : fps;
+  const period = Math.round(blurSet.samples / blurSet.shutter); // sub-frames captured per output frame
+  if (blur && fps * period > MAX_CAPTURE_FPS) {
+    return { ...res, error: `motion blur with ${blurSet.samples} samples over ${blurSet.shutter} of the frame needs ${fps * period} fps; the engine captures at most ${MAX_CAPTURE_FPS}. Use fewer samples or --shutter 1.` };
+  }
+  const captureFps = blur ? fps * period : draft ? draftFps() : fps;
   const captureFrames = Math.ceil(info.duration * captureFps - 1e-6);
   fs.mkdirSync(tmpDir, { recursive: true });
   const stem = `${scene.id}-${process.pid}`;
   const raw = path.join(tmpDir, `${stem}.raw.mp4`);
   const done = path.join(tmpDir, `${stem}.done.mp4`);
   try {
-    note(`  rendering ${scene.id}: ${captureFrames} frames at ${captureFps} fps${blur ? ' (motion blur)' : draft ? ' (draft)' : ''}`);
+    note(`  rendering ${scene.id}: ${captureFrames} frames at ${captureFps} fps${blur ? ` (motion blur, ${blurSet.samples} samples over ${blurSet.shutter} of the frame)` : draft ? ' (draft)' : ''}`);
     const r = await renderWithEngine(state.dir, raw, captureFps, captureFrames);
     res.attempts = r.attempts;
     res.phases = r.phases;
     if (!r.ok) return { ...res, error: r.error };
     if (blur) {
       // Four sub-frames become one frame: a real shutter.
-      await ffmpeg(['-i', raw, '-vf', `tmix=frames=4,select='not(mod(n+1,4))',setpts=N/(${fps}*TB),fps=${fps},tpad=stop_mode=clone:stop=1,format=yuv420p,${BT709_FILTER}`,
+      // Average the first `samples` captures of every `period`: with 4 and 4 that is the classic full shutter,
+      // with 4 and 8 the samples cover half the frame, which keeps fast text readable.
+      await ffmpeg(['-i', raw, '-vf', `tmix=frames=${blurSet.samples},select='eq(mod(n,${period}),${blurSet.samples - 1})',setpts=N/(${fps}*TB),fps=${fps},tpad=stop_mode=clone:stop=1,format=yuv420p,${BT709_FILTER}`,
         '-an', '-c:v', 'libx264', '-preset', 'slow', '-crf', '16', '-r', String(fps), '-frames:v', String(frames), done]);
     } else if (captureFps !== fps) {
       // A draft was captured at half rate: repeat frames up to the project rate so every tool sees the same shape.
@@ -266,7 +287,7 @@ async function renderMotion(scene, state, wantBlur) {
     const bad = verify(m, frames);
     if (bad.length) return { ...res, error: `the render is not valid: ${bad.join('; ')}` };
     place(done, state.file);
-    return { ...res, frames, mblur: blur };
+    return { ...res, frames, mblur: blur, ...(blur ? { mblurSamples: blurSet.samples, shutter: blurSet.shutter } : {}) };
   } finally {
     cleanTmp(stem);
   }
@@ -340,12 +361,17 @@ for (const scene of selected) {
   const record = state.record;
   const wantBlur = scene.kind === 'motion' && !blurOff && (blurArg.includes(scene.id) || scene.mblur === true || Boolean(record && record.mblur));
   const row = { id: scene.id, kind: scene.kind };
+  // The blur settings: from this run's flags, else the ones the scene was last blurred with, else 4 over a full frame.
+  const kept = record && record.mblur ? record : {};
+  const blurSet = { samples: samplesArg || kept.mblurSamples || 4, shutter: shutterArg || kept.shutter || 1 };
+  const sameBlur = !wantBlur || ((record && record.mblurSamples) || 4) === blurSet.samples && ((record && record.shutter) || 1) === blurSet.shutter;
+  const blurInfo = (r) => (r && r.mblur ? { mblurSamples: r.mblurSamples || 4, shutter: r.shutter || 1 } : {});
 
   // --changed: a render that still matches its scene is kept. A final render also answers a draft request.
   const fresh = state.rendered && !state.stale && record
-    && (draft || (record.quality === 'final' && Boolean(record.mblur) === wantBlur));
+    && (draft || (record.quality === 'final' && Boolean(record.mblur) === wantBlur && sameBlur));
   if (args.changed && fresh) {
-    results.push({ ...row, status: 'skipped', reason: 'up to date', quality: record.quality, mblur: Boolean(record.mblur), file: rel(state.file) });
+    results.push({ ...row, status: 'skipped', reason: 'up to date', quality: record.quality, mblur: Boolean(record.mblur), ...blurInfo(record), file: rel(state.file) });
     continue;
   }
 
@@ -354,7 +380,7 @@ for (const scene of selected) {
   try {
     if (scene.kind === 'footage') r = scene.overlay ? await renderOverlay(scene, state) : await renderPlainFootage(scene, state);
     else if (!state.exists) r = { warnings: [], error: `scenes/${scene.id}/index.html is missing. Create it: project.mjs add-scene <project> ${scene.id}` };
-    else r = await renderMotion(scene, state, wantBlur);
+    else r = await renderMotion(scene, state, wantBlur, blurSet);
   } catch (e) {
     r = { warnings: [], error: short(e.message || String(e), 700) };
   }
@@ -366,12 +392,12 @@ for (const scene of selected) {
   }
   const gateRecord = r.gate || (record && record.gate && record.gate.hash === state.inputs.hash ? record.gate : undefined);
   writeRecord(root, scene.id, {
-    ...state.inputs, quality, mblur: r.mblur, frames: r.frames, slotFrames: scene.frames,
+    ...state.inputs, quality, mblur: r.mblur, ...blurInfo(r), frames: r.frames, slotFrames: scene.frames,
     seconds, engine: ENGINE_VERSION, at: new Date().toISOString(), ...(gateRecord ? { gate: gateRecord } : {}),
   });
   note(`  ${scene.id} done in ${seconds} s`);
   results.push({
-    ...row, status: 'rendered', quality, mblur: r.mblur, file: rel(state.file), frames: r.frames, seconds,
+    ...row, status: 'rendered', quality, mblur: r.mblur, ...blurInfo(r), file: rel(state.file), frames: r.frames, seconds,
     attempts: r.attempts, engineTimes: r.phases || undefined, gate: r.gate, warnings: r.warnings,
   });
 }

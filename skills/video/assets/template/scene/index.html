@@ -27,7 +27,9 @@
       9. SVG: grow shapes through attributes (attr: { r }) and draw lines with attr: { "stroke-dashoffset": ... },
          never with scale or the CSS strokeDashoffset. No will-change on text that scales: it blurs.
      10. Several shots in one scene: switch them on the timeline (opacity or visibility at the cut time), not with
-         class="clip" on containers. Measure text inside document.fonts.ready.then(...), before building the timeline.
+         class="clip" on containers.
+     11. Text measured before the fonts load has the wrong width. Build the timeline right away, then fit words to
+         a width inside document.fonts.ready.then(...) and adjust the tweens that depend on that width.
     -->
     <style>
       /* fonts:start */
@@ -35,12 +37,14 @@
       /* fonts:end */
       :root {
         --w: 1080px; --h: 1920px;
-        /* The safe zone: how far text stays from each edge. --safe-right-low is the right margin in the lower half. */
+        /* The safe zone: how far text stays from each edge. From y --safe-right-low-from down, the right margin is
+           --safe-right-low, because a reel carries the platform's buttons there. */
         --safe-top: 250px;
-        --safe-bottom: 350px;
+        --safe-bottom: 360px;
         --safe-left: 80px;
         --safe-right: 80px;
         --safe-right-low: 140px;
+        --safe-right-low-from: 1150px;
         --stage-bg: #101216;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }

@@ -90,7 +90,8 @@ When the words are about the user's own product, people or work, show the real t
 - **Palette only.** Every colour on screen comes from the approved palette.
 - **Text over a busy background** gets a soft patch behind it, or the background dims while the text is up.
 - **Grain or texture** is one static layer over everything. It is never placed inside something that scales.
-- **Fast moves** look better with real motion blur. Ask the renderer for it on those scenes (`references/build.md`).
+- **Fast moves** look better with real motion blur, up to a speed. Above about 60 px per frame no blur helps, and a
+  sharp move or drawn streaks read better. The table is in `references/build.md` (Render).
 
 ## 12. Safe areas
 
@@ -100,8 +101,10 @@ Backgrounds may fill the frame.
 | Format | Clean area |
 |---|---|
 | Reel, story, short (1080x1920) | below y 250 and above y 1560. Below y 1150, also keep x under 940, because the buttons sit on the right. Keep about 80 px from the sides |
-| Square (1080x1080) | 65 px from every edge |
-| Wide (1920x1080) | 115 px from the sides, 65 px from the top and bottom |
+| Square (1080x1080) | 80 px from every edge |
+| Wide (1920x1080) | 120 px from the sides, 80 px from the top and 110 from the bottom, above the player's controls |
+
+The scene template carries these numbers as `--safe-*` variables.
 
 ## 13. Light
 

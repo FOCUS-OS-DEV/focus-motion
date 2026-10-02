@@ -5,7 +5,8 @@
 // Usage:
 //   node voice.mjs measure <file>
 //   node voice.mjs prep <in> [<in2> ...] -o <out.wav> [--cut 3.1-7.8,2:0-1.4] [--no-tighten] [--max-gap 0.22] [--no-polish]
-//   node voice.mjs words <words.json> [<words2.json> ...] --map <out.cuts.json> -o <words-out.json>
+//   node voice.mjs words <words.json> [<words2.json> ...] --map <out.cuts.json> -o <words-out.json> [--snap] [--voice <wav>]
+//   node voice.mjs words <words.json> --voice <voice.wav> --snap -o <words-out.json>
 //
 //   measure   Loudness, noise floor, clipping and the long silences, with a verdict: good, usable or poor.
 //   prep      files       several recordings (one take per paragraph) join in the order given, 0.5 s apart.
@@ -23,6 +24,12 @@
 //   words     Moves word times from the recording onto the prepared voice through the cut map, so a transcript of
 //             the recording (and the user's corrections to it) serves the final voice. With several recordings, give
 //             one words file per recording, in the same order. Words that were cut out are dropped and listed.
+//             --snap  transcript times can be off by about a tenth of a second. Each word start moves onto the clear
+//                     start nearby in the voice (a quiet gap, then a rise), at most 0.15 s; words that run into each
+//                     other keep their time. A moved word keeps its listed times in "listed", so snapping again
+//                     changes nothing. The voice is the WAV next to the map (audio/voice.cuts.json ->
+//                     audio/voice.wav) unless --voice names it. Without --map, only the snap runs, on words that
+//                     already match the voice.
 //
 // Example:
 //   node voice.mjs prep "my video/source/audio/take.m4a" -o "my video/audio/voice.wav" --cut 0-4.2
@@ -491,6 +498,106 @@ export function mapWords(words, map) {
   return { words: moved, dropped };
 }
 
+// ---------- word onsets ----------
+// Transcript times can be off by a tenth of a second either way. These two functions find where words really start
+// in the voice, and move each listed start onto the clearest start nearby.
+
+// Every clear start in a voice: a gap at least 15 dB under the loud speech, then within 60 ms a rise of 12 dB or more
+// into real speech. The start is the moment the rise passes a third of the way up. [{ t, depth, rise }]: `depth` is
+// how far the gap sits under the speech, `rise` how far the level climbs out of it.
+export function findOnsets(voice) {
+  const hop = Math.round(0.005 * SR), win = Math.round(0.010 * SR);
+  const x = applyFilter(voice, butterworth('high', 2, 100));         // rumble cannot fill a gap
+  const n = Math.max(0, Math.floor((x.length - win) / hop) + 1);
+  const L = new Float64Array(n);
+  for (let f = 0; f < n; f++) {
+    let sum = 0;
+    for (let i = 0, p = f * hop; i < win; i++, p++) sum += x[p] * x[p];
+    L[f] = 10 * Math.log10(sum / win + 1e-12);
+  }
+  const heard = L.filter((v) => v > -90);
+  if (!heard.length) return [];
+  const speech = percentile(heard, 95);
+  const onsets = [];
+  for (let m = 1; m < n - 1; m++) {
+    if (L[m] > L[m - 1] || L[m] > L[m + 1] || L[m] > speech - 15) continue;   // a quiet local low
+    let peak = -Infinity;
+    for (let k = m + 1; k <= Math.min(n - 1, m + 12); k++) if (L[k] > peak) peak = L[k];
+    const rise = peak - L[m];
+    if (rise < 12 || peak < speech - 14) continue;
+    const line = L[m] + rise / 3;
+    let k = m + 1;
+    while (k < n && L[k] < line) k++;
+    const t = round((k * hop + win / 2) / SR, 3);
+    const o = { t, depth: round(speech - L[m], 1), rise: round(rise, 1) };
+    const last = onsets[onsets.length - 1];
+    if (last && t - last.t < 0.03) { if (o.depth + o.rise > last.depth + last.rise) onsets[onsets.length - 1] = o; continue; }
+    onsets.push(o);
+  }
+  return onsets;
+}
+
+// Moves word starts onto clear starts in the voice. Each word either keeps its listed time or takes one start within
+// `reach` seconds, and the words stay in order, so a word can never take its neighbour's start. A start is worth
+// taking when its evidence beats the bar: a deep, quiet gap and a steep rise, less the distance moved (a later start
+// costs more than an earlier one, because a picture that lands after its word looks late). Words that run into each
+// other with no gap keep their listed time. The choice is made for the whole sentence at once. Returns the words
+// (starts moved, the end of the word before trimmed when needed) and the list of moves. A changed word keeps its
+// listed times as `listed: [start, end]`, and a later snap starts from those, so snapping twice changes nothing.
+export function snapOnsets(words, onsets, { reach = 0.155, bar = 33 } = {}) {
+  const n = words.length;
+  const options = [];
+  let j0 = 0;
+  const anchor = words.map((w) => (Array.isArray(w.listed) ? [Number(w.listed[0]), Number(w.listed[1])] : [Number(w.start), Number(w.end)]));
+  for (let i = 0; i < n; i++) {
+    const [t, e] = anchor[i];
+    const list = [{ t, v: 0, snap: false }];
+    while (j0 < onsets.length && onsets[j0].t < t - reach) j0++;
+    for (let j = j0; j < onsets.length && onsets[j].t <= t + reach; j++) {
+      const o = onsets[j], d = o.t - t;
+      if (o.t > e - 0.04) continue;
+      const v = o.depth + 0.5 * o.rise - (d > 0 ? 35 : 20) * Math.abs(d) - bar;
+      if (v <= 0) continue;
+      if (Math.abs(d) < 0.005) list[0].v = Math.max(list[0].v, v);   // already on a clear start: staying is worth as much
+      else list.push({ t: o.t, v, snap: true });
+    }
+    options.push(list);
+  }
+  // Best total for the words so far, ending with each option of the current word.
+  const total = [], back = [];
+  for (let i = 0; i < n; i++) {
+    total.push(options[i].map(() => -Infinity));
+    back.push(options[i].map(() => -1));
+    options[i].forEach((o, k) => {
+      if (i === 0) { total[i][k] = o.v; return; }
+      options[i - 1].forEach((p, q) => {
+        if (total[i - 1][q] === -Infinity) return;
+        if ((p.snap || o.snap) && p.t + 0.03 > o.t) return;     // the words stay in order
+        if (total[i - 1][q] + o.v > total[i][k]) { total[i][k] = total[i - 1][q] + o.v; back[i][k] = q; }
+      });
+    });
+  }
+  const pick = new Array(n).fill(0);
+  if (n) {
+    let k = total[n - 1].indexOf(Math.max(...total[n - 1]));
+    for (let i = n - 1; i >= 0; i--) { pick[i] = k; k = back[i][k]; }
+  }
+  const outWords = words.map((w, i) => {
+    const { listed, ...rest } = w;
+    return { ...rest, start: anchor[i][0], end: anchor[i][1] };
+  });
+  const moves = [];
+  for (let i = 0; i < n; i++) {
+    const o = options[i][pick[i]];
+    if (!o.snap) continue;
+    outWords[i].start = o.t;
+    if (i && outWords[i - 1].end > o.t) outWords[i - 1].end = o.t;
+    moves.push({ text: words[i].text, from: round(anchor[i][0], 3), to: o.t });
+  }
+  outWords.forEach((w, i) => { if (w.start !== anchor[i][0] || w.end !== anchor[i][1]) w.listed = [anchor[i][0], anchor[i][1]]; });
+  return { words: outWords, moves };
+}
+
 // ---------- command line ----------
 function usage() {
   const lines = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n');
@@ -499,7 +606,7 @@ function usage() {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2), { booleans: ['help', 'tighten', 'polish'], aliases: { o: 'out', h: 'help' } });
+  const args = parseArgs(process.argv.slice(2), { booleans: ['help', 'tighten', 'polish', 'snap'], aliases: { o: 'out', h: 'help' } });
   if (args.help) { process.stdout.write(usage()); return; }
   const [job, file] = args._;
   if (!job || !file || !['measure', 'prep', 'words'].includes(job) || (job === 'measure' && args._.length !== 2)) {
@@ -512,14 +619,27 @@ async function main() {
   if (job === 'measure') { out(await measure(inFile)); return; }
 
   if (job === 'words') {
-    if (args.map === undefined || args.map === true) die('words needs the cut map of the prepared voice: --map audio/voice.cuts.json', 2);
     if (args.out === undefined || args.out === true) die('words needs an output file: -o audio/words.json', 2);
-    const mapFile = path.resolve(String(args.map)), dst = path.resolve(String(args.out));
-    if (!fs.existsSync(mapFile)) die(`not found: ${fwd(mapFile)}`, 2);
-    if (args._.slice(1).some((f) => path.resolve(f).toLowerCase() === dst.toLowerCase())) die('write the moved words to a new file; the input keeps the times of the recording', 2);
-    const map = readJson(mapFile);
+    const snap = Boolean(args.snap);
+    const hasMap = args.map !== undefined && args.map !== true;
+    if (!hasMap && !snap) die('words needs the cut map of the prepared voice (--map audio/voice.cuts.json), or --snap with --voice', 2);
+    const dst = path.resolve(String(args.out));
     const files = args._.slice(1).map((f) => path.resolve(f));
-    const offsets = map.sources?.map((q) => q.start) || [0];
+    let map = null;
+    if (hasMap) {
+      const mapFile = path.resolve(String(args.map));
+      if (!fs.existsSync(mapFile)) die(`not found: ${fwd(mapFile)}`, 2);
+      if (files.some((f) => f.toLowerCase() === dst.toLowerCase())) die('write the moved words to a new file; the input keeps the times of the recording', 2);
+      map = readJson(mapFile);
+    } else if (files.length > 1) die('without --map, give one words file: the words of the voice named by --voice', 2);
+    let voiceFile = null;
+    if (snap) {
+      if (args.voice !== undefined && args.voice !== true) voiceFile = path.resolve(String(args.voice));
+      else if (hasMap) voiceFile = path.resolve(String(args.map)).replace(/\.cuts\.json$/i, '.wav');
+      if (!voiceFile) die('--snap needs the prepared voice: --voice audio/voice.wav', 2);
+      if (!fs.existsSync(voiceFile)) die(`the voice to snap to was not found: ${fwd(voiceFile)}. Name it with --voice`, 2);
+    }
+    const offsets = map ? map.sources?.map((q) => q.start) || [0] : [0];
     if (files.length > 1 && files.length !== offsets.length) die(`the cut map joins ${offsets.length} recording(s): give one words file per recording, in the same order`, 2);
     let raw = null;
     const list = [];
@@ -528,13 +648,24 @@ async function main() {
       const ws = Array.isArray(raw) ? raw : Array.isArray(raw?.words) ? raw.words : die(`no list of words in ${fwd(f)}`, 2);
       for (const w of ws) list.push({ ...w, start: Number(w.start) + offsets[k], end: Number(w.end) + offsets[k] });
     });
-    const res = mapWords(list, map);
+    let res = map ? mapWords(list, map) : { words: list, dropped: [] };
+    let snapped = null;
+    if (snap) {
+      const v = await decodeAudio(voiceFile, { channels: 1 });
+      const sn = snapOnsets(res.words, findOnsets(v.channels[0]));
+      res = { ...res, words: sn.words };
+      const shifts = sn.moves.map((m) => Math.abs(m.to - m.from)).sort((x, y) => x - y);
+      snapped = {
+        voice: fwd(voiceFile), moved: sn.moves.length, kept: sn.words.length - sn.moves.length,
+        medianShift: shifts.length ? round(shifts[shifts.length >> 1], 3) : 0, moves: sn.moves,
+      };
+    }
     const home = projectOf(dst);
     const old = shelve(dst, home?.root || path.dirname(dst));
     if (old) note(`the older ${path.basename(dst)} moved to ${fwd(old)}`);
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     writeJson(dst, Array.isArray(raw) || files.length > 1 ? res.words : { ...raw, words: res.words });
-    out({ out: fwd(dst), words: res.words.length, dropped: res.dropped });
+    out({ out: fwd(dst), words: res.words.length, dropped: res.dropped, ...(snapped ? { snap: snapped } : {}) });
     return;
   }
 

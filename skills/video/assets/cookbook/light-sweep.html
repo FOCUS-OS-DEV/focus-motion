@@ -17,6 +17,9 @@
       Traps   An image logo works the same way: in the white copy give the image filter: brightness(0) invert(1).
               A sweep on pure white text is invisible, so the resting text is a shade darker. One sweep, at the
               moment the lockup has settled. A band that crosses again and again reads as a loading shimmer.
+              The white copy carries data-layout-ignore and the base mark data-layout-allow-occlusion (the engine
+              reads that marker on the covered text itself). Without them the engine's check reports the copy as
+              text overlapping and hiding the real lockup; with them it is clean, and other overlaps still show.
     -->
     <style>
       /* fonts:start */
@@ -56,10 +59,10 @@
         <div id="glow"></div>
         <div id="lockup">
           <div class="copy" id="base">
-            <div class="mark" dir="rtl">א</div>
+            <div class="mark" dir="rtl" data-layout-allow-occlusion>א</div>
             <div class="name" dir="rtl">השם שלכם</div>
           </div>
-          <div class="copy" id="shine"></div>
+          <div class="copy" id="shine" data-layout-ignore aria-hidden="true"></div>
         </div>
       </div>
     </div>

@@ -13,6 +13,7 @@ user only for a step that really needs them, and give one instruction at a time.
 | The engine's browser download stalls | Run `node "<SKILL>/scripts/doctor.mjs"` again; it starts the download again. On a company network, ask the user whether a proxy is needed |
 | macOS opens a dialog about developer tools | Tell the user to press Install and wait until it finishes, then continue |
 | `pip` reports an externally managed environment | Install only inside the private environment, with `~/.focus-motion/venv`'s own Python |
+| `the speech model could not be loaded`, or `mkl_malloc` in a transcription error | Not enough free memory for the speech model. With an NVIDIA card (the reply says `card_unused`, or the doctor names the card), run `node "<SKILL>/scripts/transcribe.mjs" setup --gpu` and transcribe again: the card does the work. Without one, wait until other heavy work such as a render ends, then run it again. Last resort: `--model Systran/faster-whisper-small` needs far less memory but makes about twice as many Hebrew errors, so the transcript needs more fixing |
 
 ## Rendering
 
@@ -22,9 +23,12 @@ user only for a step that really needs them, and give one instruction at a time.
 | A frame is blank or the scene is missing | A script error in the scene. Run `scene.mjs check <project> <id>` and read the first error |
 | Text shows in the wrong font, or as boxes | The family has no `@font-face` in this scene, or the font has no Hebrew. See `references/hebrew.md` |
 | A scene's colours look burnt, red or washed out | A phone clip in HDR was used directly. Convert it first (`references/footage.md`) and render the scene again |
-| Two renders of the same scene differ | Something in the scene depends on real time or on randomness. See the repeatability rules in `references/build.md` |
+| `scene.mjs frames` says `same: false` | The two captures of one time really differ: something depends on real time or on randomness. See the repeatability rules in `references/build.md`. A difference of one level in a few pixels is the browser's rounding, and the tool already counts it as the same |
 | The first frame of a scene is empty | Elements start invisible and enter later. Set a complete starting state, so that frame 0 already shows the scene |
-| A very fast move shows several ghost copies | Render that scene with motion blur: `render.mjs <project> <id> --mblur <id>` |
+| A fast move looks jumpy | Render that scene with motion blur, chosen by the speed of the move (`references/build.md`, Render) |
+| A blurred move shows several separate copies | The move is too fast for the blur. Up to about 50 px per frame, render it with `--shutter 0.5`. Faster: `--mblur none` and keep it sharp, or use drawn streaks |
+| The engine's check says `text_occluded` on every word | A full-frame texture drawn from an image counts as opaque. Keep its strength in the layer's `opacity`, under 0.6 (`references/build.md`) |
+| A frame capture takes minutes | A large CSS `filter: blur()`. Replace it with a radial gradient |
 
 ## Sound and sync
 

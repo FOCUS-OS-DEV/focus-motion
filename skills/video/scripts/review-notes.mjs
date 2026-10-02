@@ -48,6 +48,11 @@ const PAGE_ALIVE_MS = 65_000; // a browser tab in the background still polls abo
 const PIECE = 1024 * 1024; // the video is read 1 MB at a time,
 const SLICE = 64 * 1024; // and handed to the network in slices of 64 KB (see sendVideo)
 const START_MS = 10_000; // how long serve waits for the server it started to answer
+// The page's font comes from the skill's own files; nothing is fetched from the internet. It gets a family name
+// of its own, so a Rubik installed on the computer never stands in for it: without the file, the page uses the
+// system fonts after it in the page's font-family, the same on every computer, with no request and no error.
+const FONT_FILE = path.join(path.dirname(SCRIPT), '..', 'assets', 'fonts', 'rubik', 'Rubik-VF.ttf');
+const FONT_FACE = '@font-face{font-family:ReviewRubik;src:url(/font/rubik.ttf) format("truetype");font-weight:300 900;font-display:swap}';
 const USAGE = `Usage:
   node review-notes.mjs serve <video.mp4> [--port ${DEFAULT_PORT}] [--open] [--foreground]
       start the review page in the background (or show this video in the one running) and return
@@ -180,9 +185,19 @@ function current() {
 }
 
 function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
-  const buffer = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body), 'utf8');
+  const buffer = Buffer.isBuffer(body) ? body : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body), 'utf8');
   res.writeHead(status, { 'Content-Type': type, 'Content-Length': buffer.length, 'Cache-Control': 'no-store', ...extra });
-  res.end(buffer);
+  // A large body (the font) goes out in slices, like the video (see sendVideo).
+  let at = 0;
+  const pump = () => {
+    while (at < buffer.length - SLICE) {
+      const more = res.write(buffer.subarray(at, at + SLICE));
+      at += SLICE;
+      if (!more) return void res.once('drain', pump);
+    }
+    return void res.end(buffer.subarray(at));
+  };
+  pump();
 }
 
 function readBody(req, limit = 8 * 1024 * 1024) {
@@ -337,7 +352,11 @@ async function handle(req, res) {
   if (!isLocalHost(req)) return send(res, 403, { error: 'this server answers on 127.0.0.1 and localhost only' });
 
   if (req.method === 'GET' || req.method === 'HEAD') {
-    if (route === '/') return send(res, 200, PAGE, 'text/html; charset=utf-8');
+    if (route === '/') return send(res, 200, isFile(FONT_FILE) ? PAGE.replace('/*font*/', FONT_FACE) : PAGE, 'text/html; charset=utf-8');
+    if (route === '/font/rubik.ttf') {
+      const font = await fs.promises.readFile(FONT_FILE).catch(() => null);
+      return font ? send(res, 200, font, 'font/ttf') : send(res, 404, {});
+    }
     if (route === '/current') {
       // The page polls this, and only a browser sends a Referer: that is how an open tab is known.
       if (req.headers.referer) state.pageSeen = Date.now();
@@ -770,10 +789,9 @@ async function main() {
 const PAGE = `<!doctype html>
 <html lang="he" dir="rtl"><head><meta charset="utf-8"><title>הערות על הסרטון</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
-<style>
+<style>/*font*/
 :root{--bg:#f6f4fb;--card:#fff;--ink:#16121f;--soft:#3d3550;--acc:#7c3aed;--acc2:#ede7fb;--line:#e2dcef;--warn:#b45309}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Rubik,Arial,sans-serif;font-size:20px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:ReviewRubik,"Segoe UI","Arial Hebrew",Arial,sans-serif;font-size:20px}
 main{display:grid;grid-template-columns:minmax(380px,auto) 1fr;gap:28px;padding:22px 28px;height:100vh}
 #left{display:flex;flex-direction:column;align-items:center;gap:12px;min-height:0}
 video{height:calc(100vh - 210px);max-width:100%;aspect-ratio:9/16;background:#000;border-radius:18px;box-shadow:0 20px 50px rgba(40,20,80,.18)}

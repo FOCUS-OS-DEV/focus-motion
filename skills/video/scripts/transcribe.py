@@ -108,6 +108,9 @@ def cuda_libraries():
     return False
 
 
+CARD = {"unused": False}   # an NVIDIA card is in the computer but this environment cannot use it
+
+
 def load_model(folder, device, threads):
     """Returns (model, device, compute type). The card first when asked for or available, then the processor."""
     from faster_whisper import WhisperModel
@@ -120,6 +123,7 @@ def load_model(folder, device, threads):
         if cards > 0:
             add_nvidia_libraries()
             if not cuda_libraries():
+                CARD["unused"] = True
                 note("an NVIDIA card is present but its libraries are not installed (transcribe.mjs setup --gpu adds them)")
             else:
                 try:
@@ -232,28 +236,42 @@ def read_audio(media, ffmpeg):
     return decode_audio(media, sampling_rate=RATE)
 
 
-def speech_mask(samples, hop=0.02):
-    """True for every 20 ms that is clearly louder than the quiet parts of this recording."""
+QUIET_UNDER_SPEECH = 25.0   # dB: sound this far under the speaker's level is breath or room noise, never a word
+
+
+def frame_db(samples, hop=0.02):
+    """The level of every 20 ms, in dB."""
     import numpy as np
     n = int(hop * RATE)
     frames = len(samples) // n
     if frames < 5:
-        return np.zeros(0, dtype=bool), hop
+        return np.zeros(0), hop
     rms = np.sqrt(np.mean(samples[: frames * n].reshape(frames, n) ** 2, axis=1) + 1e-12)
-    db = 20 * np.log10(rms)
-    return db > np.percentile(db, 10) + 14, hop
+    return 20 * np.log10(rms), hop
 
 
 def fill_holes(rec, samples, words):
     """Whisper sometimes skips a sentence, most often one that is spoken twice, or stretches one word over it.
-    Such a stretch shows as a gap in the words that still holds speech. Each one is recognised again on its own."""
+    Such a stretch shows as a gap in the words that still holds speech. Each one is recognised again on its own.
+    Speech here means near the speaker's own level: a gap of breath and room noise (more than QUIET_UNDER_SPEECH
+    under it) is left alone, because the recogniser invents words in it."""
+    import numpy as np
     total = len(samples) / RATE
-    mask, hop = speech_mask(samples)
-    if not len(mask):
+    db, hop = frame_db(samples)
+    if not len(db):
         return words, []
+    span = lambda a, b: db[int(a / hop): max(int(a / hop) + 1, int(b / hop))]
+    heard = [span(w["start"], w["end"]) for w in words]
+    speech = float(np.percentile(np.concatenate(heard) if heard else db, 90))
+    quiet = speech - QUIET_UNDER_SPEECH
+    mask = (db > np.percentile(db, 10) + 14) & (db > quiet)
 
     def speech_in(a, b):
         return float(mask[int(a / hop): int(b / hop)].sum()) * hop
+
+    def loud_enough(w):
+        seg = span(w["start"], w["end"])
+        return len(seg) > 0 and float(seg.max()) > quiet
 
     for w in words:                                  # a very long word hides a skipped stretch: keep its head only
         if w["end"] - w["start"] > 1.1:
@@ -264,7 +282,9 @@ def fill_holes(rec, samples, words):
         a, b = bounds[k], bounds[k + 1]
         if b - a > 0.7 and speech_in(a, b) > 0.35:
             a0, b0 = max(0.0, a - 0.08), min(total, b + 0.08)
-            got = [g for g in rec.words(samples[int(a0 * RATE): int(b0 * RATE)], a0) if g["start"] >= a - 0.05 and g["start"] < b]
+            # A word starting at the very end of the hole, or one cut off ("..."), is the head of the next word.
+            got = [g for g in rec.words(samples[int(a0 * RATE): int(b0 * RATE)], a0)
+                   if g["start"] >= a - 0.05 and g["start"] < b - 0.15 and not g["text"].endswith("...") and loud_enough(g)]
             if got:
                 found.append({"from": round(a, 2), "to": round(b, 2), "text": " ".join(g["text"] for g in got)})
                 added += got
@@ -320,13 +340,21 @@ def main():
         folder, model_name = resolve_model(args)
     except Exception as e:
         finish({"ok": False, "error": "the speech model could not be downloaded: %s" % str(e).splitlines()[0]}, 1)
+    def explain(e):
+        reason = str(e).splitlines()[0] if str(e) else type(e).__name__
+        if "alloc" not in reason.lower() and not isinstance(e, MemoryError):
+            return reason, None
+        fix = ("an NVIDIA card is present: run transcribe.mjs setup --gpu, which moves the work to the card" if CARD["unused"]
+               else "wait until other heavy work ends and run it again, or use a smaller model: "
+                    "--model Systran/faster-whisper-small (weaker on Hebrew)")
+        return "not enough free memory (%s). Fix: %s" % (reason, fix), "memory"
+
     try:
         rec = Recogniser(args, folder)
     except Exception as e:
-        reason = str(e).splitlines()[0] if str(e) else type(e).__name__
-        if "alloc" in reason.lower() or isinstance(e, MemoryError):
-            reason = "not enough free memory (%s). Close other programs and run it again" % reason
-        finish({"ok": False, "error": "the speech model could not be loaded: %s" % reason}, 1)
+        reason, kind = explain(e)
+        finish({"ok": False, "error": "the speech model could not be loaded: %s" % reason, "cause": kind,
+                "card_unused": CARD["unused"]}, 1)
     loaded = time.time()
     try:
         samples = read_audio(args.media, args.ffmpeg)
@@ -343,7 +371,8 @@ def main():
         if args.holes and words:
             words, holes = fill_holes(rec, samples, words)
     except Exception as e:
-        finish({"ok": False, "error": "recognition failed: %s" % str(e).splitlines()[0]}, 1)
+        reason, kind = explain(e)
+        finish({"ok": False, "error": "recognition failed: %s" % reason, "cause": kind, "card_unused": CARD["unused"]}, 1)
     words = tidy(words, total)
     done = time.time()
 
@@ -358,7 +387,7 @@ def main():
         "language": args.language, "model": model_name, "device": rec.device, "compute": rec.compute,
         "faster_whisper": getattr(faster_whisper, "__version__", "?"),
         "load_seconds": round(loaded - started, 1), "seconds": round(seconds, 1), "speed": round(total / seconds, 2),
-        "holes": holes, "hint": rec.hint, "text": " ".join(w["text"] for w in words),
+        "holes": holes, "hint": rec.hint, "card_unused": CARD["unused"], "text": " ".join(w["text"] for w in words),
     })
 
 

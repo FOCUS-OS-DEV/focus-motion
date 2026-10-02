@@ -27,6 +27,8 @@ Read `references/conversation.md` once per conversation. In short:
   work.
 - **Brand.** It appears three times in the conversation, as written in that file. It never appears inside the user's
   video.
+- **Showing.** Frames, cuts and folders open on the user's screen (`scripts/open.mjs`). When the session cannot open
+  windows, give the full paths in the chat instead.
 
 ## The flow
 
@@ -61,7 +63,8 @@ Continue with whatever the user chooses.
 
 If `~/.focus-motion/state.json` is missing or does not say `setup_done`, follow `references/setup.md`. It installs
 what is missing, proves the installation with a short test video, and saves the state. Transcription is installed
-later, the first time a project needs it.
+later, the first time a project needs it. Once the state says `setup_done`, run the doctor again only when a tool
+exits with code 3.
 
 ### 2. What are we making
 
@@ -93,7 +96,8 @@ node "<SKILL>/scripts/project.mjs" ingest "<project>" "<file or folder>" ...
   1. Measure the recording.
   2. Transcribe the recording as it is, and show the text for corrections. Mark false starts and repeats to remove.
   3. Prepare the voice: remove what was marked, shorten the silences, clean lightly.
-  4. Move the word times onto the prepared voice. This needs no second transcription.
+  4. Move the word times onto the prepared voice, and snap them to where each word really starts. This needs no
+     second transcription.
   5. Lock the voice: no scene is built on a voice that may still change.
 - **`footage` track:** `references/footage.md`.
   1. Convert clips to standard colour.

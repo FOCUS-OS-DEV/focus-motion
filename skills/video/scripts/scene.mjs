@@ -9,7 +9,8 @@
 //
 //   frames   PNG frames of the scene at the given scene-local seconds, at full size, for the look test and for
 //            checking a moment. Default folder: <project>/work/frames/<id>/ (emptied first). Repeat a time to check
-//            that the scene is repeatable: the two captures of that time must be identical (`same` in the JSON).
+//            that the scene is repeatable: `same` is true when the two captures of that time are the same picture
+//            (identical, or 45 dB PSNR and up: a level of rounding in a few pixels). `repeats` gives the numbers.
 //   lint     the engine's fast static check (about 1 s). Errors are real and stop a render.
 //   check    the engine's full check (8 to 40 s): script errors, missing targets and files, text outside the frame,
 //            overlapping text, contrast. Layout and contrast findings on busy scenes are noisy: look at the frame.
@@ -21,7 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { fwd, out, note, die, parseArgs, loadProject } from './lib/common.mjs';
+import { fwd, out, note, die, parseArgs, loadProject, run, findTool } from './lib/common.mjs';
 import { engine, engineJson, ENGINE_INSTALL_HINT } from './lib/engine.mjs';
 import { showUsage, removeTree } from './lib/cli.mjs';
 
@@ -85,13 +86,38 @@ const frames = pngs.map((f, i) => {
   const m = f.match(NAME);
   return { file: fwd(path.join(outDir, f)), t: m ? Number(m[2]) : (times[i] !== undefined ? Number(times[i]) : null) };
 });
-const repeated = times.filter((t, i) => times.indexOf(t) !== i);
+// The engine leaves an empty work folder (.capture-XXXX) behind after each run.
+for (const d of fs.readdirSync(outDir)) if (d.startsWith('.capture')) removeTree(path.join(outDir, d));
+
+// Repeatability: two captures of the same time. Byte-identical is the usual case. The browser can also round a
+// gradient differently by one level in a few pixels, which nobody can see, so the frames are compared by PSNR:
+// 45 dB or more counts as the same picture. A real timing or randomness bug moves elements and gives far less.
+const SAME_DB = 45;
+async function psnr(a, b) {
+  const ff = findTool('ffmpeg');
+  if (!ff) return null;
+  const r = await run(ff, ['-hide_banner', '-nostdin', '-i', a, '-i', b, '-lavfi', 'psnr', '-f', 'null', '-']);
+  const m = /average:(inf|[\d.]+)/.exec(r.stderr || '');
+  return m ? (m[1] === 'inf' ? Infinity : Number(m[1])) : null;
+}
 let same = null;
-if (repeated.length) {
+const repeats = [];
+if (times.some((t, i) => times.indexOf(t) !== i)) {
   const groups = {};
-  frames.forEach((f) => { if (f.t !== null) (groups[f.t] = groups[f.t] || []).push(hash(f.file)); });
-  same = Object.values(groups).filter((g) => g.length > 1).every((g) => g.every((h) => h === g[0]));
+  frames.forEach((f) => { if (f.t !== null) (groups[f.t] = groups[f.t] || []).push(f.file); });
+  same = true;
+  for (const [t, list] of Object.entries(groups)) {
+    if (list.length < 2) continue;
+    for (const other of list.slice(1)) {
+      const identical = hash(list[0]) === hash(other);
+      const db = identical ? Infinity : await psnr(list[0], other);
+      const ok = identical || (db !== null && db >= SAME_DB);
+      repeats.push({ t: Number(t), identical, psnr: db === Infinity ? 'inf' : db });
+      if (!ok) same = false;
+    }
+  }
   if (frames.length < times.length) note('the engine wrote fewer files than times asked: compare the repeated time by eye');
 }
 const sheet = path.join(outDir, 'contact-sheet.jpg');
-out({ ok: true, scene: id, folder: fwd(outDir), frames, ...(fs.existsSync(sheet) ? { sheet: fwd(sheet) } : {}), ...(same === null ? {} : { same }) });
+out({ ok: true, scene: id, folder: fwd(outDir), frames, ...(fs.existsSync(sheet) ? { sheet: fwd(sheet) } : {}),
+  ...(same === null ? {} : { same, repeats }) });

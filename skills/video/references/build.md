@@ -24,7 +24,8 @@ node "<SKILL>/scripts/project.mjs" ingest my-video "חומרים מהלקוח"
 - `init` makes `source/{video,photos,audio,brand,other}/`, `work/`, `audio/`, `scenes/`, `renders/`, `_versions/`
   and `project.json`. The name is lowercase English with hyphens; the Hebrew name goes in `--title`.
 - `project.json` keeps `fonts` (default `["Rubik"]`) and `features`, which Claude edits by hand. A missing key is
-  never an error. Defaults: idea and voice have no captions and no cuts; footage has both; `sfx` and `lookTest`
+  never an error. The keys and what each controls are in `references/conversation.md` (the extras table).
+  Defaults: idea and voice have no captions and no cuts; footage has both; `voiceTighten` is on for voice only; `sfx` and `lookTest`
   are on, `music` is off, `voicePolish` is on for voice and footage.
 - `ingest` copies files and whole folders (`--move` only when the user asks) into `source/<type>/`, by extension and
   probe (an mp4 with only sound goes to audio). Names are made safe, Hebrew kept: `צילום #2 & גרסה.mov` becomes
@@ -75,8 +76,9 @@ Playpen Sans Hebrew (hand), all with Latin. Your own font: `--fonts "Brand=sourc
 - Every asset is local under `assets/`. A missing `<img>` is a lint error; a missing font file is not, and only
   `check` (below) reports the 404.
 - Frame 0 already shows something moving, the last frame is complete, no fades to or from black: scenes are cut hard.
-- Safe zone (the template's `--safe-*` variables): reel 250 top, 350 bottom, 80 sides, 140 on the right below
-  y 960. Square 80 all round. Wide 80 top, 110 bottom, 120 sides.
+- Safe zone (the template's `--safe-*` variables, the same numbers as craft.md): reel 250 top, 360 bottom (keep
+  above y 1560), 80 sides, and 140 on the right from y 1150 down, where the platform's buttons sit. Square 80 all
+  round. Wide 80 top, 110 bottom, 120 sides. Nothing measures this for you: check the peak frames at full size.
 
 Video inside a scene: `<video id="v1" class="clip" src="assets/clip.mp4" muted playsinline data-start="0"
 data-duration="2.5" data-media-start="0.5">`. Without `id` lint says `media_missing_id` (it renders frozen); without
@@ -102,7 +104,25 @@ node "<SKILL>/scripts/render.mjs" my-video s01 --mblur s01
   re-renders draft scenes; a draft run accepts finals. `renders/renders.json` records quality, motion blur,
   frames, the engine's phase times and the gate.
 - `--mblur` renders at 4x the fps and blends each 4 sub-frames into one (a real shutter). The scene keeps it on
-  later renders until `--mblur none`. A 3 s scene took 38 s.
+  later renders until `--mblur none`. A 3 s scene took 38 s. Separate copies appear once the blended samples sit
+  more than about 4 px apart, so choose by the fastest move's speed in px per frame:
+
+  | Fastest move | Do |
+  |---|---|
+  | up to about 16 px per frame (480 px/s) | `--mblur <id>` |
+  | about 20 to 50 px per frame | `--mblur <id> --shutter 0.5`: the 4 samples cover half the frame. The render takes twice as long |
+  | above about 60 px per frame | no blur helps: keep it sharp, use the streaks technique (`cookbook.md`), or shorten the move |
+
+  `--mblur-samples 8` gives the softest look up to 32 px per frame, at the same cost as the half shutter. Look at
+  the fastest frame at full size before keeping a blurred render.
+- **Large CSS blurs are slow.** One `filter: blur(30px)` on a 620x1300 shadow made a frame capture take 5 minutes
+  instead of 8 s. Draw soft shadows and glows with a radial gradient or a blurred image file instead.
+- **Decorative layers and the engine's check.** The check treats any layer drawn from an image (`url(...)`) as
+  opaque, so a grain texture "hides" every word. Keep a full-frame texture's strength in the layer's own `opacity`,
+  under 0.6. A decorative copy of a text (a shine, a glow copy) gets `data-layout-ignore aria-hidden="true"`.
+  `data-layout-allow-occlusion` goes on the covered text, never on the layer that covers it.
+- **A known lint false alarm.** `overlapping_gsap_tweens` fires on a loop that tweens one proxy object at several
+  different times. When the times really differ, ignore it.
 - Footage scenes: with `overlay: true` render calls `footage.mjs overlay <project> <id>` (plus `--draft`,
   `--workers`); with `overlay: false` it conforms the clip itself to the project size, fps and bt709.
 - `--workers n` sets the engine's browsers. The engine's own choice (5 here) spent up to 18 s just starting them.
@@ -146,6 +166,7 @@ node "<SKILL>/scripts/scene.mjs" frames my-video s01 --at 0.5,1.8,0.5
   0.5 s. On a busy production scene (rolling digit strips) it gave 7 layout errors, 64 info items and 97 contrast
   errors for digits caught mid-roll. Look at the frame before acting on a layout or contrast finding.
 - Seek safety in about 10 s: `scene.mjs frames my-video s01 --at 1.0,2.0,1.0`. With a repeated time the JSON has
-  `same`, which must be `true`: the two captures of 1.0 are byte-identical.
+  `same`, which must be `true`. The two captures of 1.0 are then identical, or differ only by a level of rounding in
+  a few pixels (45 dB PSNR or more; `repeats` gives the number). A real timing bug gives far less.
 - For the finished cut use `check.mjs` and `sheet.mjs` (the gate and contact sheets), and `review-notes.mjs` for the
   user's notes pinned to seconds. Ready techniques (fitting a word, shatter, words on the voice): `cookbook.md`.

@@ -10,7 +10,8 @@
 //   --write            saves the result to ~/.focus-motion/state.json (setup_done, os, versions, ffmpegDir, checked)
 //   --selftest         renders the 4 second example scene and checks the video: the proof that everything works.
 //                      The video stays in ~/.focus-motion/selftest/ so it can be shown to the user.
-//   --with-transcribe  also checks the Python environment for transcription (~/.focus-motion/venv, faster-whisper)
+//   --with-transcribe  also checks the Python environment for transcription (~/.focus-motion/venv, faster-whisper),
+//                      the system Python that creates it, and an NVIDIA card (then the command is `setup --gpu`)
 //
 // Exit codes: 0 ready, 3 something is missing (the JSON lists the install commands), 1 the self-test failed.
 //
@@ -154,15 +155,29 @@ if (args['with-transcribe']) {
     if (r.code === 0) [pyVersion, fw] = r.stdout.trim().split(/\r?\n/);
     else pyVersion = (runSync(py, ['--version']).stdout || '').replace(/^Python\s+/i, '').trim() || null;
   }
-  checks.transcribe = { ok: Boolean(fw), python: py ? fwd(py) : null, pythonVersion: pyVersion, fasterWhisper: fw || null, venv: fwd(venv) };
+  // python is the private environment's Python (null until setup); basePython is the system Python that creates it.
+  const { findBasePython, nvidiaCard, gpuLibraries, GPU_WHY } = await import('./lib/media.mjs');
+  const base = findBasePython();
+  const card = nvidiaCard();
+  const cardLibs = card && py && fw ? gpuLibraries(py) : null;
+  checks.transcribe = {
+    ok: Boolean(fw), python: py ? fwd(py) : null, pythonVersion: pyVersion, fasterWhisper: fw || null, venv: fwd(venv),
+    basePython: base ? { command: [base.cmd, ...base.args].join(' '), version: base.version } : null,
+    gpu: card, gpuLibraries: cardLibs,
+  };
+  const setup = `node "${fwd(path.join(SKILL_ROOT, 'scripts', 'transcribe.mjs'))}" setup`;
+  const setupHere = card ? `${setup} --gpu` : setup;   // the card is checked on this computer only
   if (!checks.transcribe.ok) {
-    const setup = `node "${fwd(path.join(SKILL_ROOT, 'scripts', 'transcribe.mjs'))}" setup`;
-    const systemPy = runSync(IS_WIN ? 'py' : 'python3', ['--version']).code === 0;
-    need('transcribe', py ? 'the Python environment exists but faster-whisper is not installed in it' : 'the Python environment for transcription does not exist yet', {
-      windows: systemPy ? setup : `${INSTALL.python.windows}  then  ${setup}`,
-      macos: systemPy ? setup : `${INSTALL.python.macos}  then  ${setup}`,
-      linux: systemPy ? setup : `${INSTALL.python.linux}  then  ${setup}`,
+    const why = (py ? 'the Python environment exists but faster-whisper is not installed in it' : 'the Python environment for transcription does not exist yet')
+      + (base ? `; Python ${base.version} is installed (${[base.cmd, ...base.args].join(' ')})` : '; Python is not installed')
+      + (card ? `; ${GPU_WHY.replace('an NVIDIA card is present', `an NVIDIA card is present (${card.name})`)}` : '');
+    need('transcribe', why, {
+      windows: base ? setupHere : `${INSTALL.python.windows}  then  ${setupHere}`,
+      macos: base ? setup : `${INSTALL.python.macos}  then  ${setup}`,
+      linux: base ? setupHere : `${INSTALL.python.linux}  then  ${setupHere}`,
     });
+  } else if (card && cardLibs === false) {
+    warnings.push(`transcription runs on the processor although an NVIDIA card is present (${card.name}). Run: ${setupHere} (faster, and it does not fail when memory is short)`);
   }
 }
 

@@ -97,8 +97,31 @@ async function fix() {
   const { words, report } = applyText(before, fs.readFileSync(textFile, 'utf8').replace(/^\uFEFF/, ''), { mode: 'truth' });
   const old = archiveExisting(file);
   writeJson(file, words);
+  const refreshed = refreshSiblings(file, words, languageOf(file));
   out({ ok: true, out: fwd(file), previous: old ? fwd(old) : null, words: words.length, words_before: before.length, ...report,
-    ...writeExports(words, languageOf(file)), text: wordsText(words) });
+    ...writeExports(words, languageOf(file)), refreshed,
+    ...(refreshed.length ? {} : { exports_note: `subtitle or text files made from the old words elsewhere are stale: node "${fwd(path.join(SKILL_ROOT, 'scripts', 'transcribe.mjs'))}" export "${fwd(file)}" --srt <file>` }),
+    text: wordsText(words) });
+}
+
+// Subtitle and text files made earlier from this words file (same folder, same name: words.srt next to words.json)
+// would now be stale. They are written again from the corrected words; the old ones move to _versions/.
+function refreshSiblings(file, words, language) {
+  const dir = path.dirname(file), base = path.basename(file, path.extname(file));
+  const given = new Set(['srt', 'vtt', 'txt'].filter((k) => str(args[k])).map((k) => path.resolve(str(args[k]))));
+  const cueOpts = { maxChars: num(args['max-chars'], 32), maxWords: num(args['max-words'], 6) };
+  const rtl = isRtl(language), marks = str(args.marks) || 'auto';
+  const refreshed = [];
+  for (const ext of ['txt', 'srt', 'vtt']) {
+    const f = path.join(dir, `${base}.${ext}`);
+    if (!fs.existsSync(f) || given.has(path.resolve(f))) continue;
+    const text = ext === 'txt' ? toTxt(words)
+      : ext === 'srt' ? toSrt(groupCues(words, cueOpts), { rtl, marks }) : toVtt(groupCues(words, cueOpts), { rtl, marks });
+    archiveExisting(f);
+    fs.writeFileSync(f, text, 'utf8');
+    refreshed.push(fwd(f));
+  }
+  return refreshed;
 }
 
 async function transcribe() {
@@ -150,7 +173,10 @@ async function transcribe() {
   for (const line of py.stdout.split(/\r?\n/).reverse()) { if (line.trim().startsWith('{')) { try { res = JSON.parse(line); break; } catch { /* not the result line */ } } }
   if (py.code !== 0 || !res?.ok) {
     removeTree(tmp);
-    fail(res?.error || `the recogniser stopped (exit ${py.code})`, py.code === 3 ? 3 : 1);
+    fail(res?.error || `the recogniser stopped (exit ${py.code})`, py.code === 3 ? 3 : 1, {
+      ...(res?.cause ? { cause: res.cause } : {}),
+      ...(res?.card_unused ? { card_unused: true, hint: `node "${fwd(path.join(SKILL_ROOT, 'scripts', 'transcribe.mjs'))}" setup --gpu` } : {}),
+    });
   }
   let words = readWords(raw);
   removeTree(tmp);
@@ -170,6 +196,8 @@ async function transcribe() {
     model: repo && !given ? repo : res.model, model_downloaded: downloaded, device: res.device, compute: res.compute,
     seconds: res.seconds, load_seconds: res.load_seconds, speed: res.speed, holes: res.holes,
     script: scriptReport, ...writeExports(words, language, res.duration),
-    last_word_end: words.length ? r3(words[words.length - 1].end) : 0, text: wordsText(words),
+    last_word_end: words.length ? r3(words[words.length - 1].end) : 0,
+    ...(res.card_unused ? { hint: `an NVIDIA card is present but unused. Run: node "${fwd(path.join(SKILL_ROOT, 'scripts', 'transcribe.mjs'))}" setup --gpu (about 10 times faster, with little main memory)` } : {}),
+    text: wordsText(words),
   });
 }

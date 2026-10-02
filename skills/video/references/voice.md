@@ -13,7 +13,8 @@ project folder. Every tool prints one JSON line.
 | The light clean-up | on | The user may ask for the recording as it is: `--no-polish`, or `"voicePolish": false` in `features` |
 | Loudness -16 LUFS | always | The mix expects it |
 
-A flag on the command line wins over `features`. A missing key means the default.
+`voice.mjs` reads two keys of `features` in `project.json`: `voiceTighten` and `voicePolish`. A flag on the command
+line wins over them. A missing key means the default.
 
 ## 1. Ask for the recording
 
@@ -54,6 +55,15 @@ Transcribe the recording itself, before it is prepared, with `scripts/transcribe
 into `<project>/work/words-raw.json`. With several recordings, transcribe each one into its own words file. The user
 then approves the text once, and false starts and repeated lines show up in it.
 
+Before you show the text, check two things:
+- **Words in a silence.** A word that the transcript places inside a stretch `measure` reported as silence (a
+  breath, the room before the first word) is usually invented. Drop it.
+- **English names.** They are often misheard ("Cloud Code" for "Claude Code"). When the user has the text they
+  read, give it to the transcription as `--script`: matched words take the script's spelling, and on our test the
+  errors fell from 10 in 79 words to 1. Otherwise write the corrected text to a file and run
+  `node "<SKILL>/scripts/transcribe.mjs" fix "<project>/audio/words.json" --text "<fixed.txt>"`. It keeps the times
+  and refreshes the `.txt`, `.srt` and `.vtt` files of the same name.
+
 Show the text. Mark what you propose to take out (a false start, the first reading of a line said twice), and ask
 `התמלול נכון? תקנו שמות ומילים אם צריך.` Apply the corrections with the transcribe tool's `fix`.
 
@@ -89,15 +99,27 @@ the same way: the silences stay, and the clean-up and the loudness apply.
 For a voice clean-up as a single job: prepare the file, then give the user both the original and the prepared file
 to compare.
 
-## 5. Move the words onto the prepared voice
+## 5. Move the words onto the prepared voice, and onto their real starts
 
 ```
-node "<SKILL>/scripts/voice.mjs" words "<project>/work/words-raw.json" --map "<project>/audio/voice.cuts.json" -o "<project>/audio/words.json"
+node "<SKILL>/scripts/voice.mjs" words "<project>/work/words-raw.json" --map "<project>/audio/voice.cuts.json" -o "<project>/audio/words.json" --snap
 ```
 
-The approved words, with the user's corrections, move onto the prepared voice; nothing is transcribed again. Words
-inside a cut are dropped and listed in `dropped`: check that they are exactly the ones you meant to take out. With
-several recordings, give one words file per recording, in the same order as in `prep`.
+- The approved words, with the user's corrections, move onto the prepared voice; nothing is transcribed again.
+  Words inside a cut are dropped and listed in `dropped`: check that they are exactly the ones you meant to take
+  out. With several recordings, give one words file per recording, in the same order as in `prep`.
+- Transcript times can be off by about a tenth of a second, in both directions, and an event timed to a late
+  listing lands after its word. `--snap` moves each word start onto the clear start nearby in the voice (a quiet
+  gap, then a rise), at most 0.15 s away. Words that run into each other with no gap keep their listed time. The
+  result lists every move under `snap.moves`; a moved word keeps its listed times in `listed`, so running it again
+  changes nothing. Always use it on the `voice` track.
+- Words that already match the voice (no cuts in between) can be snapped alone:
+  ```
+  node "<SKILL>/scripts/voice.mjs" words "<project>/audio/words.json" --voice "<project>/audio/voice.wav" --snap -o "<project>/audio/words.json"
+  ```
+- A word that kept its listed time can still be off. Before you build a peak on a word, look at the frame at its
+  start in the cut: `sheet.mjs` with `--words` and `--after 0`, or with `--at` and the word's start. The hit must
+  already be on screen in that frame.
 
 ## 6. Lock the voice
 

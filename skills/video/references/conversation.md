@@ -17,8 +17,8 @@ choice changes the result. Everywhere else you decide, say what you decided in o
 Focus Motion is made by Focus AI Academy. The brand appears in the conversation exactly three times per project. It
 never appears inside the user's video.
 
-1. **Opening.** The first message of a new project starts with these two lines, then goes straight to the first
-   question:
+1. **Opening.** The first message of a new project starts with these two lines. On a computer without setup, the
+   setup offer (`references/setup.md`) follows them in the same message; otherwise the first question does:
    ```
    FOCUS MOTION
    by Focus AI Academy
@@ -57,8 +57,10 @@ matters to them.
 2. למי זה מיועד? (ברירת מחדל: אנשים שעוד לא מכירים אתכם)
 3. איפה זה יעלה? (ברירת מחדל: רילס, סרטון אנכי)
 4. כמה זמן? (ברירת מחדל: 20 עד 30 שניות)
-5. יש לוגו, צבעים, תמונות או צילומים שלכם לשלב? (ברירת מחדל: אני מציע מראה)
+5. יש לוגו, צבעים, תמונות, צילומים או מוזיקה שלכם לשלב? (ברירת מחדל: אני מציע מראה, בלי מוזיקה)
 ```
+
+Save the answers to `brief.md` in the project folder.
 
 Additions per track:
 - **`voice`:** ask where the recording is. If there is none yet, offer to write the script together first.
@@ -70,18 +72,19 @@ Then one line about the extras, with the defaults of the track:
 מה נכלול, לפי ברירת המחדל: <רשימת התוספות>. אם משהו מיותר או חסר, כתבו לי.
 ```
 
-| Extra | `idea` | `voice` | `footage` |
-|---|---|---|---|
-| Captions | no | on request | yes |
-| Cutting silences and mistakes | n/a | yes | yes |
-| Titles and animation | yes | yes | yes |
-| Sound effects | yes | yes | yes |
-| Music | only a file the user brings | same | same |
-| Voice clean-up | n/a | yes | yes |
-| A look test before the build | yes | yes | yes |
+| Extra | Key in `features` | `idea` | `voice` | `footage` |
+|---|---|---|---|---|
+| Captions | `captions` | no | on request | yes |
+| Cutting silences in the voice | `voiceTighten` | n/a | yes | no (the cut list decides) |
+| Cutting mistakes and repeats from footage | `cuts` | n/a | n/a | yes |
+| Titles and animation | `graphics` | yes | yes | yes |
+| Sound effects | `sfx` | yes | yes | yes |
+| Music | `music` | only a file the user brings | same | same |
+| Voice clean-up | `voicePolish` | n/a | yes | yes |
+| A look test before the build | `lookTest` | yes | yes | yes |
 
-Save the choices in `project.json` under `features`. If the user turned an extra off, do not offer it again in this
-project.
+`project.mjs init` writes these defaults. Change a key when the user turns an extra on or off, and do not offer a
+declined extra again in this project. Each tool reads its own keys.
 
 ## The user can change course at any point
 
@@ -96,8 +99,10 @@ project.
 
 ## The brand kit
 
-The first time colours, a logo or a font come up, offer to keep them: `לשמור את הצבעים והלוגו לסרטונים הבאים?` Save
-the kit to `~/.focus-motion/brand.json`: name, colours, font family, logo path, a line about tone.
+The first time the user gives you their own colours, logo or font, offer to keep them:
+`לשמור את הצבעים והלוגו לסרטונים הבאים?` A look you proposed does not count. Save the kit to
+`~/.focus-motion/brand.json`: name, colours, font family, logo path, a line about tone. It is one file for every
+project on this computer.
 
 In the next project, ask once: `להשתמש במראה מהפעם הקודמת?`
 

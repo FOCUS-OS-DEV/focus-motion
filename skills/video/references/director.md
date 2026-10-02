@@ -63,6 +63,8 @@ Each video gets its own look. Carry a look over from an earlier project only whe
 - **Colours.** Use the brand kit when there is one. Otherwise propose three to five colours that fit the subject,
   one of them an accent.
 - **Type.** One family from `assets/fonts/fonts.json` carries most of the text. Add a second only for contrast.
+- **Colour for text.** An accent colour used for words needs at least 3:1 contrast with what is behind it, or a dark
+  edge around the letters. Check this when you choose the palette, not after the build.
 - **World.** Choose one and keep it through the video: flat and bold, paper and ink, soft 3D, glass and light, pixel
   art, editorial.
 - **Motion character.** Snappy, calm, playful or heavy. It sets the eases and the timing.
@@ -74,7 +76,8 @@ When the choice is a matter of taste, offer the user two directions, one line ea
 - **The hook is the fastest part.** Something new arrives about every half second.
 - **The body.** Something new arrives roughly every second. "New" means a change the viewer notices: an element
   enters, the shot cuts, a word lands with a hit, a screen changes. A slow drift does not count.
-- **Breathing stretches.** They may run up to two seconds with gentle motion. They are never frozen.
+- **Breathing stretches.** They may run up to about one and a half seconds with gentle motion, after a peak or to
+  let the viewer read. They are never frozen. The gate fails a stretch of 1.8 s with nothing new in it.
 - **The last message.** It stays readable for at least a second and a half.
 - **With a voice.** On the `voice` and `footage` tracks, each event starts on a spoken word, at the moment the word
   starts.

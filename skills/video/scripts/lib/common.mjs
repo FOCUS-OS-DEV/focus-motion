@@ -197,7 +197,13 @@ export async function mediaInfo(file) {
 
 // ---------- project ----------
 export function loadProject(dir) {
-  const root = path.resolve(dir || '.');
+  let root = path.resolve(dir || '.');
+  // Run from inside the project with its bare name ("scene.mjs lint my-video s01" while in my-video/): the name
+  // resolves to my-video/my-video, which does not exist, so the current folder is meant.
+  if (!fs.existsSync(path.join(root, 'project.json')) && dir && !path.isAbsolute(dir)
+    && path.basename(process.cwd()) === path.basename(dir) && fs.existsSync(path.join(process.cwd(), 'project.json'))) {
+    root = process.cwd();
+  }
   const file = path.join(root, 'project.json');
   if (!fs.existsSync(file)) die(`no project.json in ${root}. Create the project first: project.mjs init <name>`, 2);
   const project = readJson(file);

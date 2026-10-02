@@ -39,9 +39,9 @@ const FOLDERS = [...SOURCE_TYPES.map((t) => `source/${t}`), 'work', 'audio', 'sc
 
 // What a new project of each track does by default. Claude edits `features` in project.json by hand afterwards.
 const FEATURES = {
-  idea: { captions: false, cuts: false, graphics: true, music: false, sfx: true, voicePolish: false, lookTest: true },
-  voice: { captions: false, cuts: false, graphics: true, music: false, sfx: true, voicePolish: true, lookTest: true },
-  footage: { captions: true, cuts: true, graphics: true, music: false, sfx: true, voicePolish: true, lookTest: true },
+  idea: { captions: false, cuts: false, graphics: true, music: false, sfx: true, voicePolish: false, voiceTighten: false, lookTest: true },
+  voice: { captions: false, cuts: false, graphics: true, music: false, sfx: true, voicePolish: true, voiceTighten: true, lookTest: true },
+  footage: { captions: true, cuts: true, graphics: true, music: false, sfx: true, voicePolish: true, voiceTighten: false, lookTest: true },
 };
 
 const EXT_TYPES = {

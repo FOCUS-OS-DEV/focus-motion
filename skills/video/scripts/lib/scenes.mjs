@@ -23,12 +23,14 @@ export const KINDS = ['motion', 'footage'];
 // themselves are tagged SDR bt709 here.
 export const BT709_FILTER = 'setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709';
 
-// How far text stays from the edges, in pixels. `rightLow` is the right margin in the lower half of the frame,
-// where a reel carries the platform's buttons. The reel numbers come from our own published reels.
+// How far text stays from the edges, in pixels. `rightLow` is the right margin from y `rightLowFrom` down, where a
+// reel carries the platform's like, comment and share buttons. The reel numbers come from the interface Instagram
+// and TikTok paint over a 1080x1920 video: the header above y 250, the caption and name below y 1560, the buttons
+// right of x 940 from y 1150. references/craft.md (safe areas) and build.md give the same numbers.
 export const SAFE_ZONES = {
-  reel: { top: 250, bottom: 350, left: 80, right: 80, rightLow: 140 },
-  square: { top: 80, bottom: 80, left: 80, right: 80, rightLow: 80 },
-  wide: { top: 80, bottom: 110, left: 120, right: 120, rightLow: 120 },
+  reel: { top: 250, bottom: 360, left: 80, right: 80, rightLow: 140, rightLowFrom: 1150 },
+  square: { top: 80, bottom: 80, left: 80, right: 80, rightLow: 80, rightLowFrom: 0 },
+  wide: { top: 80, bottom: 110, left: 120, right: 120, rightLow: 120, rightLowFrom: 0 },
 };
 
 export function safeZone(project) {
@@ -41,7 +43,7 @@ export function safeZone(project) {
     return Object.fromEntries(Object.entries(z).map(([key, v]) => [key, Math.round(v * k)]));
   }
   const m = Math.round(Math.min(width, height) * 0.075);
-  return { top: m, bottom: m, left: m, right: m, rightLow: m };
+  return { top: m, bottom: m, left: m, right: m, rightLow: m, rightLowFrom: 0 };
 }
 
 // ---------- fonts ----------
@@ -134,7 +136,7 @@ export function fillTemplate(html, v) {
   once(/Scene s00\b/, `Scene ${v.id}`, 'scene name');
   once(/\/\* fonts:start \*\/[\s\S]*?\/\* fonts:end \*\//, `/* fonts:start */\n      ${v.fontsCss}\n      /* fonts:end */`, 'fonts block');
   once(/--w: \d+px; --h: \d+px;/, `--w: ${v.width}px; --h: ${v.height}px;`, 'canvas size');
-  for (const [name, key] of [['top', 'top'], ['bottom', 'bottom'], ['left', 'left'], ['right', 'right'], ['right-low', 'rightLow']]) {
+  for (const [name, key] of [['top', 'top'], ['bottom', 'bottom'], ['left', 'left'], ['right', 'right'], ['right-low', 'rightLow'], ['right-low-from', 'rightLowFrom']]) {
     once(new RegExp(`--safe-${name}: \\d+px;`), `--safe-${name}: ${v.safe[key]}px;`, `--safe-${name}`);
   }
   if (v.transparent) once(/--stage-bg: [^;]+;/, '--stage-bg: transparent;', 'stage background');

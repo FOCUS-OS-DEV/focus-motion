@@ -38,7 +38,7 @@ never paste one unchanged. Read only the snippet you need. To see one run, copy 
 | fit-and-hero-word | `fit-and-hero-word.html` | sizes each line to fill the safe width after the font loads; one hero word with a gradient on every letter | a title or a key line must be as big as the frame allows |
 | strike-through | `strike-through.html` | a line is drawn across a word on a beat, two frames of shake, the word dims, its replacement lands | a contrast: the old way against the new one |
 | typing-caret | `typing-caret.html` | Hebrew typed into a field in reading order, caret on the left, the send button wakes and is pressed | someone asks, searches or writes a request |
-| number-roll | `number-roll.html` | an odometer that rolls column by column to a value, and a plain count-up that lands exactly | a number is the point: a price, a result, a percentage |
+| number-roll | `number-roll.html` | an odometer that rolls column by column to a value, and a plain count-up that lands exactly | a growing quantity is the point: a count, a total, a result. Every value on the way shows on some frame, so a version, a price or a date lands its digits whole instead |
 | stamp-slam | `stamp-slam.html` | a stamp falls and lands on the beat, the page gives, two frames of shake, a ring of ink | a verdict: approved, rejected, done, generic |
 | banner-words | `banner-words.html` | a banner takes its words one by one and pulses on each; pills arrive for the next words | a list or a slogan spoken word by word |
 

@@ -6,6 +6,8 @@
 //   node export.mjs small <video> [--max-mb 15] [-o small.mp4]      a lighter copy for messaging apps
 //   node export.mjs gif <video> [--start 0] [--len 4] [--width 360] [--fps 12] [-o clip.gif]
 //
+// For a cut in a project folder the files go to <project>/exports/, unless -o says otherwise.
+//
 // Example:
 //   node export.mjs cover "launch/launch-v3.mp4" --at 2.4
 import fs from 'node:fs';
@@ -15,13 +17,18 @@ import { parseArgs, out, die, fwd, ffmpeg, mediaInfo } from './lib/common.mjs';
 const args = parseArgs(process.argv.slice(2), { booleans: ['help'], aliases: { o: 'out' } });
 const [job, video] = args._;
 if (args.help || !job || !video) {
-  process.stdout.write(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 10).map((l) => l.replace(/^\/\/ ?/, '')).join('\n') + '\n');
+  process.stdout.write(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 13).map((l) => l.replace(/^\/\/ ?/, '')).join('\n') + '\n');
   process.exit(args.help ? 0 : 2);
 }
 
 const src = path.resolve(video);
 if (!fs.existsSync(src)) die(`not found: ${fwd(src)}`, 2);
-const base = src.replace(/\.[^.]+$/, '');
+// A cut inside a project gets its extras in <project>/exports/, so the project root keeps one current cut.
+const stemName = path.basename(src).replace(/\.[^.]+$/, '');
+const inProject = fs.existsSync(path.join(path.dirname(src), 'project.json'));
+const exportsDir = path.join(path.dirname(src), 'exports');
+if (inProject && !args.out) fs.mkdirSync(exportsDir, { recursive: true });
+const base = inProject ? path.join(exportsDir, stemName) : src.replace(/\.[^.]+$/, '');
 const info = await mediaInfo(src);
 const num = (v, d) => (v === undefined || v === true ? d : Number(v));
 

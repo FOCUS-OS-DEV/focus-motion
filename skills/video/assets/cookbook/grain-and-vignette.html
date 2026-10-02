@@ -9,14 +9,18 @@
       What    A film grain and darkened corners over a whole scene, so flat colours and gradients look less
               synthetic. Here they lie over two drifting lights and a title.
       How     The grain is drawn once, before the timeline: a small canvas of seeded black and white specks with a
-              low random opacity becomes a repeating background image on one layer. The vignette is one radial
-              gradient. Both layers are the last children of the root, outside the camera wrapper.
+              random opacity becomes a repeating background image on one layer, and that layer's own opacity is the
+              strength. The vignette is one radial gradient. Both layers are the last children of the root, outside
+              the camera wrapper.
       Change  GRAIN (strength, 0.08 to 0.2), GRAIN_PX (speck size), TILE, and the two stops of the vignette. Colours
               of the demo scene in :root.
       Traps   Grain inside anything that scales or moves swims and shimmers: it stays outside the camera. Grain that
               changes every frame costs file size and turns to mush when the video is compressed: it stays still.
               A 1 px speck mostly disappears in the final file, so the specks are 2 px. No blend mode and no CSS
               filter are needed, and both would slow every frame down.
+              Keep the strength in the layer's opacity (under 0.6), not in the specks: the engine's check counts an
+              image layer at 0.6 opacity or more as opaque and reports every word under it as hidden
+              (text_occluded). Measured: the same picture, and the check went from 3 errors to none.
     -->
     <style>
       /* fonts:start */
@@ -66,23 +70,24 @@
 
       // ---- restyle here
       const DUR = 3;
-      const GRAIN = 0.14;      // strength: the highest opacity a speck can have
+      const GRAIN = 0.14;      // strength: the opacity of the grain layer (keep it under 0.6)
       const GRAIN_PX = 2;      // speck size in frame pixels
       const TILE = 512;        // the grain repeats every TILE px; too small and the eye finds the pattern
 
-      // The grain, once: every speck is black or white with a random opacity up to GRAIN.
+      // The grain, once: every speck is black or white with a random opacity; the layer's opacity scales them all.
       const side = TILE / GRAIN_PX, canvas = document.createElement("canvas");
       canvas.width = canvas.height = side;
       const ctx = canvas.getContext("2d"), image = ctx.createImageData(side, side);
       for (let i = 0; i < image.data.length; i += 4) {
         const tone = rnd() < 0.5 ? 0 : 255;
         image.data[i] = image.data[i + 1] = image.data[i + 2] = tone;
-        image.data[i + 3] = Math.round(255 * GRAIN * rnd());
+        image.data[i + 3] = Math.round(255 * rnd());
       }
       ctx.putImageData(image, 0, 0);
       const grain = document.getElementById("grain");
       grain.style.backgroundImage = "url(" + canvas.toDataURL() + ")";
       grain.style.backgroundSize = TILE + "px " + TILE + "px";
+      grain.style.opacity = GRAIN;
 
       const tl = gsap.timeline({ paused: true });
       // the scene under the grain moves and scales; the grain and the vignette do not

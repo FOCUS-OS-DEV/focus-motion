@@ -69,12 +69,19 @@ install, so do it the first time it is needed and not before.
 node "<SKILL>/scripts/doctor.mjs" --with-transcribe
 ```
 
-Tell the user first:
+The doctor also looks for an NVIDIA graphics card. With one, the command it gives is `transcribe.mjs setup --gpu`:
+transcripts then run on the card, about 10 times faster, with little main memory, so they do not fail on a busy
+computer. Use it whenever there is a card.
+
+Tell the user first. Without a graphics card:
 
 ```
 כדי לתמלל צריך להתקין פעם אחת כלי זיהוי דיבור. הוא רץ על המחשב שלכם, בלי לשלוח את ההקלטה לשום מקום.
-ההורדה היא בערך גיגה וחצי, ולוקחת כמה דקות. להתקין?
+ההורדה היא בערך שני גיגה, ולוקחת כמה דקות. להתקין?
 ```
+
+With a graphics card, the second line is `ההורדה היא בערך ארבעה גיגה, ולוקחת כמה דקות. להתקין?`. On disk the speech
+model takes 1.6 GB, and the environment 0.3 GB, or 2.3 GB with the card's libraries.
 
 Then run the commands the doctor gives: Python if missing, a private environment in `~/.focus-motion/venv`, and the
 speech library. The speech model downloads the first time a transcript is made.

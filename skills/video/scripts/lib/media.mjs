@@ -600,6 +600,38 @@ const PYTHON_INSTALL = IS_WIN
   ? 'winget install -e --id Python.Python.3.12 --accept-package-agreements --accept-source-agreements'
   : IS_MAC ? 'brew install python@3.12' : 'sudo apt-get install -y python3 python3-venv';
 
+let cardCache;
+// The NVIDIA card of this computer, read with nvidia-smi (on the PATH, or where the Windows driver puts it):
+// { name, memoryMb } or null. A Mac never has one.
+export function nvidiaCard() {
+  if (cardCache !== undefined) return cardCache;
+  if (IS_MAC) return (cardCache = null);
+  const tries = ['nvidia-smi'];
+  if (IS_WIN) {
+    tries.push(path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'nvidia-smi.exe'),
+      path.join(process.env.ProgramFiles || 'C:/Program Files', 'NVIDIA Corporation', 'NVSMI', 'nvidia-smi.exe'));
+  }
+  for (const cmd of tries) {
+    if (cmd !== 'nvidia-smi' && !fs.existsSync(cmd)) continue;
+    const r = runSync(cmd, ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits'], { timeout: 15000 });
+    const line = r.code === 0 ? r.stdout.trim().split(/\r?\n/)[0] : '';
+    if (line) {
+      const [name, mem] = line.split(',').map((s) => s.trim());
+      return (cardCache = { name, memoryMb: Number(mem) || null });
+    }
+  }
+  return (cardCache = null);
+}
+
+// Whether this Python has the NVIDIA libraries that `setup --gpu` installs.
+export function gpuLibraries(python) {
+  const r = runSync(python, ['-c', 'import importlib.util as u; print(u.find_spec("nvidia.cublas") is not None)'], { cwd: SCRIPTS_DIR, timeout: 60000 });
+  return r.code === 0 && r.stdout.trim().endsWith('True');
+}
+
+// Why --gpu, in one line for the agent.
+export const GPU_WHY = 'an NVIDIA card is present: --gpu also installs its libraries (about 1.5 GB more on disk), and transcription then runs on the card, about 10 times faster and with little main memory, so it does not fail when memory is short';
+
 /**
  * What is missing for transcription and the exact commands that install it. `ready` is true when nothing is missing.
  * Each command is one line that runs as written in PowerShell, bash and zsh.
@@ -607,18 +639,22 @@ const PYTHON_INSTALL = IS_WIN
 export function transcribeSetup() {
   const python = transcribePython();
   const version = python ? whisperVersion(python) : null;
-  if (python && version) return { ready: true, python: fwd(python), fasterWhisper: version, missing: null, install: [] };
+  const card = nvidiaCard();
+  if (python && version) return { ready: true, python: fwd(python), fasterWhisper: version, missing: null, install: [], gpu: card };
   const base = findBasePython();
-  const setup = `node "${fwd(path.join(SCRIPTS_DIR, 'transcribe.mjs'))}" setup`;
+  const setup = `node "${fwd(path.join(SCRIPTS_DIR, 'transcribe.mjs'))}" setup${card ? ' --gpu' : ''}`;
   const install = [];
   if (!base) install.push({ what: 'Python 3.9 or newer', run: PYTHON_INSTALL });
-  install.push({ what: `a private Python environment in ${fwd(VENV_DIR)} with faster-whisper`, run: setup });
+  install.push({ what: `a private Python environment in ${fwd(VENV_DIR)} with faster-whisper${card ? ` and the libraries of the ${card.name}` : ''}`,
+    run: setup, ...(card ? { why: GPU_WHY } : {}) });
   const py = base ? [base.cmd, ...base.args].join(' ') : IS_WIN ? 'py -3' : 'python3';
   return {
-    ready: false, python: python ? fwd(python) : null, fasterWhisper: null,
+    ready: false, python: python ? fwd(python) : null, fasterWhisper: null, gpu: card,
+    basePython: base ? { command: [base.cmd, ...base.args].join(' '), version: base.version } : null,
     missing: !base && !python ? 'python' : python ? 'faster-whisper' : 'venv', install,
     // What `setup` runs, for a person who wants to do it by hand (bash form; PowerShell needs `&` before a quoted program).
-    byHand: [`${py} -m venv "${fwd(VENV_DIR)}"`, `"${fwd(venvPython())}" -m pip install --upgrade pip`, `"${fwd(venvPython())}" -m pip install faster-whisper`],
+    byHand: [`${py} -m venv "${fwd(VENV_DIR)}"`, `"${fwd(venvPython())}" -m pip install --upgrade pip`, `"${fwd(venvPython())}" -m pip install faster-whisper`,
+      ...(card ? [`"${fwd(venvPython())}" -m pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"`] : [])],
   };
 }
 

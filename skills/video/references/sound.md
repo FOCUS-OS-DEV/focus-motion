@@ -8,11 +8,12 @@ Read this before you place sound in the scenes and before the first mix. `<SKILL
 | Part | Default | Before you use it |
 |---|---|---|
 | Sound effects | on | Nothing to ask. Name the big ones in the plan. If the user turns them off, set `"sfx": false` |
-| Music | off | Only a file the user brings and is allowed to use (their own, bought, or licensed for this use). Ask once, in your own words, for example `יש לכם מוזיקה שמותר לכם להשתמש בה בסרטון?` Never find, download or generate music |
+| Music | off | Only a file the user brings and is allowed to use (their own, bought, or licensed for this use). The brief asks about it with the user's other material (logo, colours, photos, clips or music); do not ask separately. Never find, download or generate music |
 | Voice | the recording, lightly cleaned | See `references/voice.md` |
 
-The choices live in `project.json` under `features`, for example `{ "sfx": true, "music": false }`. A missing key, or
-no `features` at all, means the default. A flag on the command line always wins over `features`.
+`mix.mjs` reads two keys of `features` in `project.json`: `sfx` and `music`, for example
+`{ "sfx": true, "music": false }`. A missing key, or no `features` at all, means the default. A flag on the command
+line always wins over `features`.
 
 ## The effects
 
@@ -75,6 +76,20 @@ result. Fix it and mix again.
   top (`music.loops` says where); a track that runs out within the last 1.5 s simply ends.
 - The options are saved in `audio/mix.json`, so a plain `mix.mjs "<project>"` repeats them. `--no-music` takes the
   music out and forgets it.
+
+## No voice and no music
+
+Then the effects are the whole soundtrack. The small sounds (`tick`, `pop`, `click`, `key`) are short: on their own
+they leave long silences, and the master has to lift the whole track and squash its peaks to reach the loudness.
+- Give the sound a body first: a `rise` into every change of scene and a soft `sub` (gain 0.3 to 0.5) on the cut,
+  `--seams` for the cuts, and the long tails (`impact`, `ding`, `sparkle`) on the reveals. Then add the small sounds
+  on the details.
+- Keep every stretch with no sound under about a second, except one planned silence before the biggest peak.
+- Read `master.gainDb` in the result. Above about +6 dB the track is thin: add body, not level. In a test on a 24 s
+  video made mostly of ticks and pops, a `rise` into each cut and a `sub` on it brought the lift from +8.5 to
+  +4.1 dB and the loudness range from 14 to 9 LU.
+- If the brief brought no music and the user did not decline it, say once, at the plan, in one line, that a music
+  file of theirs would carry this video. If there is none, go on with the effects.
 
 ## The mix
 
