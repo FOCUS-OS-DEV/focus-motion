@@ -127,14 +127,16 @@ Show the plan in Hebrew, short enough to read in a minute. The words in angle br
 The person on camera is the source. Their face, lips and voice are never regenerated or altered. The plan is an edit
 plan:
 
-1. **Open on the strongest sentence.** Find it in the transcript and put it in the first two seconds.
+1. **Open on the strongest sentence.** Find it in the transcript and put it in the first two seconds. Propose this
+   when you propose the cut list, so the order is approved once.
 2. **The cut list.** State which sentences stay and in what order, what is removed (false starts, repeats, dead air)
-   and how many seconds that saves.
+   and how many seconds that saves. It was approved before the plan: restate it in one line, and do not reopen it.
 3. **Where graphics appear.** Give them to the peaks only. Between the peaks the person simply talks.
 4. **Captions.** State whether they are on, and where they sit.
-5. **Covering cuts.** Use the user's photos and extra clips, or a full-screen graphic moment.
+5. **Covering cuts.** Use the user's photos and extra clips, or a full-screen graphic moment. The method is in
+   `references/footage.md` (cutaways).
 
-The user approves the transcript first, then this plan.
+The user approves the transcript first, then the cut list, then this plan.
 
 ## 11. After approval
 

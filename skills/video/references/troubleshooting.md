@@ -13,7 +13,7 @@ user only for a step that really needs them, and give one instruction at a time.
 | The engine's browser download stalls | Run `node "<SKILL>/scripts/doctor.mjs"` again; it starts the download again. On a company network, ask the user whether a proxy is needed |
 | macOS opens a dialog about developer tools | Tell the user to press Install and wait until it finishes, then continue |
 | `pip` reports an externally managed environment | Install only inside the private environment, with `~/.focus-motion/venv`'s own Python |
-| `the speech model could not be loaded`, or `mkl_malloc` in a transcription error | Not enough free memory for the speech model. With an NVIDIA card (the reply says `card_unused`, or the doctor names the card), run `node "<SKILL>/scripts/transcribe.mjs" setup --gpu` and transcribe again: the card does the work. Without one, wait until other heavy work such as a render ends, then run it again. Last resort: `--model Systran/faster-whisper-small` needs far less memory but makes about twice as many Hebrew errors, so the transcript needs more fixing |
+| `the speech model could not be loaded`, or `mkl_malloc` in a transcription error | Not enough free memory for the speech model. If the card's libraries are already set up, run it once more: loading on the card also needs a little main memory for a moment. With an NVIDIA card (the reply says `card_unused`, or the doctor names the card), run `node "<SKILL>/scripts/transcribe.mjs" setup --gpu` and transcribe again: the card does the work. Without one, wait until other heavy work such as a render ends, then run it again. Last resort: `--model Systran/faster-whisper-small` needs far less memory but makes about twice as many Hebrew errors, so the transcript needs more fixing |
 
 ## Rendering
 
@@ -29,6 +29,7 @@ user only for a step that really needs them, and give one instruction at a time.
 | A blurred move shows several separate copies | The move is too fast for the blur. Up to about 50 px per frame, render it with `--shutter 0.5`. Faster: `--mblur none` and keep it sharp, or use drawn streaks |
 | The engine's check says `text_occluded` on every word | A full-frame texture drawn from an image counts as opaque. Keep its strength in the layer's `opacity`, under 0.6 (`references/build.md`) |
 | A frame capture takes minutes | A large CSS `filter: blur()`. Replace it with a radial gradient |
+| `scene.mjs check` reports `page_error`, such as "Unexpected token '*'", and the timeline does not advance, though the render looks right | A script file in the scene starts with a block comment. Write comments in scene scripts as `//` lines |
 
 ## Sound and sync
 

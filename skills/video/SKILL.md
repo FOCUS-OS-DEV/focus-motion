@@ -5,7 +5,7 @@ license: Free to use for making videos, including commercial ones. The skill its
 compatibility: Claude Code on Windows or macOS. Needs Node.js 20 or newer and ffmpeg. The first-time setup installs what is missing and needs an internet connection once.
 metadata:
   author: Focus AI Academy
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Focus Motion
@@ -78,7 +78,8 @@ Decide the track: `idea`, `voice`, `footage`, or a single job.
 
 ### 3. The project folder and the material
 
-Each video is one tidy folder in the user's working directory.
+Each video is one tidy folder in the user's working directory. `init` creates it in the current folder, so run it
+from the user's working directory.
 
 ```
 node "<SKILL>/scripts/project.mjs" init <english-slug> --format reel|square|wide --track idea|voice|footage --title "<שם>"
@@ -122,6 +123,8 @@ peak.
    ```
    node "<SKILL>/scripts/scene.mjs" frames "<project>" <id> --at <seconds,seconds>
    ```
+   For a footage scene, take the frames over the footage instead, because `scene.mjs frames` shows the graphics on
+   nothing: `node "<SKILL>/scripts/footage.mjs" frames "<project>" <id> --at <seconds,seconds>`.
    Always go through `scene.mjs`, `render.mjs` and the other tools. They start the video engine with the right
    settings, so never call the engine through `npx` yourself.
 2. Look at them yourself first (`references/craft.md`, `references/hebrew.md`).
@@ -174,8 +177,9 @@ it in its folder, offer the one natural extra, and end with the sign-off.
 2. **Look before you say "מוכן".** The gate has passed, and you have looked at the frames with your own eyes.
 3. **The user's facts only.** Numbers, prices, names and claims come from the user. Every word on screen was
    approved in the plan or written by the user.
-4. **The person on camera is never altered.** Face, lips and voice stay as recorded. Cuts, colour, sound clean-up and
-   graphics around them are fine.
+4. **The person on camera is never altered.** Face, lips and voice stay as recorded. Cuts, colour, a light sound
+   clean-up and graphics around them are fine. When the user asks that their voice stay exactly as recorded, even
+   level only (`voice.mjs prep --no-polish`).
 5. **The user's files are never modified or deleted.** Work happens on copies inside the project.
 6. **Only what the user may use.** Music, logos, photos and clips come from the user. Another company's logo
    appears only when the user asks for it.

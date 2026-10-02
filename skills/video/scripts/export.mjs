@@ -17,7 +17,9 @@ import { parseArgs, out, die, fwd, ffmpeg, mediaInfo } from './lib/common.mjs';
 const args = parseArgs(process.argv.slice(2), { booleans: ['help'], aliases: { o: 'out' } });
 const [job, video] = args._;
 if (args.help || !job || !video) {
-  process.stdout.write(fs.readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 13).map((l) => l.replace(/^\/\/ ?/, '')).join('\n') + '\n');
+  const head = [];
+  for (const l of fs.readFileSync(new URL(import.meta.url), 'utf8').split(/\r?\n/).slice(1)) { if (!l.startsWith('//')) break; head.push(l.replace(/^\/\/ ?/, '')); }
+  process.stdout.write(head.join('\n') + '\n');
   process.exit(args.help ? 0 : 2);
 }
 
@@ -36,7 +38,7 @@ if (job === 'cover') {
   const at = Math.min(Math.max(num(args.at, 1), 0), Math.max(info.duration - 0.05, 0));
   const dst = path.resolve(args.out || `${base}-cover.jpg`);
   await ffmpeg(['-ss', String(at), '-i', src, '-frames:v', '1', '-q:v', '2', dst]);
-  out({ job, out: fwd(dst), at, width: info.width, height: info.height });
+  out({ ok: true, job, out: fwd(dst), at, width: info.width, height: info.height });
 } else if (job === 'small') {
   const maxMb = num(args['max-mb'], 15);
   const dst = path.resolve(args.out || `${base}-small.mp4`);
@@ -49,14 +51,14 @@ if (job === 'cover') {
     '-maxrate', `${Math.floor(videoKbit * 1.4)}k`, '-bufsize', `${videoKbit * 2}k`, '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', dst]);
   const mb = fs.statSync(dst).size / 1024 / 1024;
-  out({ job, out: fwd(dst), megabytes: Math.round(mb * 10) / 10, videoKbit, underLimit: mb <= maxMb });
+  out({ ok: true, job, out: fwd(dst), megabytes: Math.round(mb * 10) / 10, videoKbit, underLimit: mb <= maxMb });
 } else if (job === 'gif') {
   const start = num(args.start, 0), len = num(args.len, 4), width = num(args.width, 360), fps = num(args.fps, 12);
   const dst = path.resolve(args.out || `${base}.gif`);
   const chain = `fps=${fps},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4`;
   await ffmpeg(['-ss', String(start), '-t', String(len), '-i', src, '-filter_complex', chain, '-loop', '0', dst]);
   const mb = fs.statSync(dst).size / 1024 / 1024;
-  out({ job, out: fwd(dst), megabytes: Math.round(mb * 100) / 100, start, len, width, fps });
+  out({ ok: true, job, out: fwd(dst), megabytes: Math.round(mb * 100) / 100, start, len, width, fps });
 } else {
   die(`unknown job "${job}". Use cover, small or gif.`, 2);
 }

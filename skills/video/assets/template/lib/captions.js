@@ -1,30 +1,24 @@
-/* captions.js: word-synced captions for a Focus Motion scene. A plain browser script; it needs only GSAP.
- *
- * Usage, inside a scene's index.html, after the scene's own timeline is registered:
- *   <script src="assets/words.js"></script>       window.FM_WORDS = [{ "text": "שלום", "start": 0.42, "end": 0.80 }]
- *   <script src="assets/captions.js"></script>
- *   <script>
- *     FocusCaptions.add(window.__timelines["main"], window.FM_WORDS, { mode: "highlight" });
- *   </script>
- *
- * Example: the same words, revealed one by one, three words a line, near the top:
- *   <style>.fm-cap { --cap-y: 22%; }</style>
- *   FocusCaptions.add(tl, words, { mode: "reveal", maxChars: 14 });
- *
- * Times are the scene's own seconds (0 is the scene's first frame). The words are grouped into short cues that break
- * at sentence ends and pauses, never inside a word. Each cue is laid out in at most `lines` lines that the script
- * chooses itself (the browser never wraps). Right-to-left text is detected per cue; the words stay plain inline text,
- * so the browser's own bidi keeps Latin words, numbers and punctuation in their correct places inside a Hebrew line.
- *
- * Determinism: nothing runs on real time. The DOM is built once, every change is a GSAP tween or set on the timeline
- * at a fixed time, and the state of any frame depends only on that frame's time, in any seek order.
- *
- * Every look comes from CSS variables on .fm-cap (defaults in brackets):
- *   --cap-y (74%)  --cap-left / --cap-right (the safe zone)  --cap-font (the scene font)  --cap-size (72px)
- *   --cap-weight (800)  --cap-line-height (1.18)  --cap-color (#fff)  --cap-active-color (#ffe14d)
- *   --cap-past-color (= --cap-color)  --cap-active-bg (none: a box behind the spoken word)  --cap-stroke-width (0)
- *   --cap-stroke-color  --cap-shadow (none)  --cap-bg (none: a box behind each line)  --cap-pad  --cap-radius  --cap-z (50)
- */
+// captions.js: word-synced captions for a Focus Motion scene. A plain browser script that needs only GSAP.
+// Keep every comment in this file a // line: the engine's check breaks on a block comment at the top of a script.
+//
+// Usage, after the scene's timeline is registered (footage.mjs captions writes this for you):
+//   FocusCaptions.add(window.__timelines["main"], window.FM_WORDS, { mode: "highlight" });
+// window.FM_WORDS is [{ text, start, end }] in the scene's own seconds, set by assets/words.js.
+// Example, revealed word by word, shorter lines: FocusCaptions.add(tl, words, { mode: "reveal", maxChars: 12 });
+//
+// Words are grouped into short cues that break at sentence ends and pauses, never inside a word, in at most `lines`
+// lines chosen here (the browser never wraps). Right-to-left text is detected per cue; the words stay plain inline
+// text, so the browser's own bidi keeps Latin words, numbers and punctuation in place inside a Hebrew line. The first
+// cue is already on screen on frame 0 when it starts early in the scene (frame 0 may be the thumbnail).
+//
+// Determinism: nothing runs on real time. The DOM is built once, and every change is a GSAP tween or set at a fixed
+// time, so the state of any frame depends only on that frame's time, in any seek order.
+//
+// Every look is a CSS variable on .fm-cap (default in brackets): --cap-y (74%), --cap-left and --cap-right (the safe
+// zone), --cap-font (the scene font), --cap-size (90px), --cap-weight (800), --cap-line-height (1.18), --cap-color
+// (#fff), --cap-active-color (#ffe14d), --cap-past-color (= --cap-color), --cap-active-bg (none: a box behind the
+// spoken word), --cap-stroke-width (0), --cap-stroke-color, --cap-shadow (none), --cap-bg (none: a box behind each
+// line), --cap-pad, --cap-radius, --cap-z (50).
 (function () {
   'use strict';
   var RTL = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
@@ -32,7 +26,7 @@
   var DEFAULTS = {
     mode: 'highlight',   // 'highlight': the cue appears whole, the spoken word changes colour; 'reveal': words appear as spoken
     maxWords: 6,         // words per cue
-    maxChars: 18,        // characters per line
+    maxChars: 16,        // characters per line (16 at 90 px fits a reel)
     lines: 2,            // lines per cue
     pause: 0.6,          // a silence longer than this starts a new cue (seconds)
     lead: 0.05,          // a cue appears this much before its first word
@@ -42,7 +36,8 @@
     rise: 14,            // pixels
     parent: '#root',
     dir: 'auto',         // 'auto', 'rtl' or 'ltr'
-    offset: 0            // seconds added to every word time
+    offset: 0,           // seconds added to every word time
+    firstAt: 0.6         // a first cue that starts this early is already on screen on frame 0
   };
 
   var CSS = [
@@ -50,7 +45,7 @@
     '  right: var(--cap-right, var(--safe-right-low, 140px)); z-index: var(--cap-z, 50); pointer-events: none; }',
     '.fm-cap-cue { position: absolute; left: 0; right: 0; top: 0; transform: translateY(-50%); }',
     '.fm-cap-in { display: flex; flex-direction: column; align-items: center; font-family: var(--cap-font, inherit);',
-    '  font-size: var(--cap-size, 72px); font-weight: var(--cap-weight, 800); line-height: var(--cap-line-height, 1.18); }',
+    '  font-size: var(--cap-size, 90px); font-weight: var(--cap-weight, 800); line-height: var(--cap-line-height, 1.18); }',
     '.fm-cap-line { display: block; white-space: nowrap; text-align: center; letter-spacing: 0; hyphens: none;',
     '  color: var(--cap-color, #ffffff); background: var(--cap-bg, transparent); padding: var(--cap-pad, 0 0.12em);',
     '  border-radius: var(--cap-radius, 0.16em); text-shadow: var(--cap-shadow, none);',
@@ -141,14 +136,12 @@
       c.inner.style.fontSize = '';
       var widest = 0;
       for (var j = 0; j < c.lineEls.length; j++) widest = Math.max(widest, c.lineEls[j].getBoundingClientRect().width);
-      if (widest > max) c.inner.style.fontSize = 'calc(var(--cap-size, 72px) * ' + Math.max(0.55, (max / widest) * 0.98).toFixed(3) + ')';
+      if (widest > max) c.inner.style.fontSize = 'calc(var(--cap-size, 90px) * ' + Math.max(0.55, (max / widest) * 0.98).toFixed(3) + ')';
     }
   }
 
-  /**
-   * Builds the captions and puts their tweens on `tl` at position 0.
-   * Returns { el, cues: [{ start, end, text, lines }], timeline }.
-   */
+  // Builds the captions and puts their tweens on `tl` at position 0.
+  // Returns { el, cues: [{ start, end, text, lines }], timeline }.
   function add(tl, words, options) {
     var o = merge(DEFAULTS, options);
     if (!tl || typeof tl.add !== 'function') throw new Error('FocusCaptions.add: the first argument is the scene timeline');
@@ -207,7 +200,12 @@
       var q = cues[c], next = cues[c + 1];
       var tIn = Math.max(0, q.start - o.lead, shownUntil);
       var nextIn = next ? Math.max(0, next.start - o.lead) : Infinity;
-      if (direct) {
+      var onFirstFrame = c === 0 && q.start <= o.firstAt;
+      if (onFirstFrame) {
+        // Frame 0 may be the thumbnail: the first cue is already there, with its first word in reveal mode.
+        gsap.set(q.inner, { autoAlpha: 1, y: 0 });
+        if (o.mode === 'reveal') gsap.set(q.wordEls[0], { opacity: 1 });
+      } else if (direct) {
         sub.set(q.inner, { autoAlpha: 1 }, tIn);
         sub.fromTo(q.inner, { y: o.rise * 0.5 }, { y: 0, duration: o.enter, ease: 'power2.out', immediateRender: false }, tIn);
       } else {
@@ -225,7 +223,7 @@
       }
       for (var n = 0; n < q.words.length; n++) {
         var word = q.words[n], el = q.wordEls[n], after = q.words[n + 1];
-        if (o.mode === 'reveal') {
+        if (o.mode === 'reveal' && !(onFirstFrame && n === 0)) {
           sub.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.08, ease: 'none', immediateRender: false }, Math.max(tIn, word.start - 0.03));
         }
         sub.set(el, { attr: { 'data-s': 1 } }, Math.max(tIn, word.start));

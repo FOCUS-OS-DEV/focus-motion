@@ -305,6 +305,17 @@ async function renderOverlay(scene, state) {
   res.warnings.push(...l.warnings);
   if (l.errors.length) return { ...res, error: `lint found ${l.errors.length} error(s); the scene was not rendered`, lint: l.errors };
 
+  // The engine's check runs on the scene's graphics, as for a motion scene (final renders, or --check).
+  if (runCheck) {
+    const cached = state.record && state.record.gate && state.record.gate.hash === state.inputs.hash ? state.record.gate : null;
+    if (cached) res.gate = { ...cached, cached: true };
+    else {
+      note(`  checking ${scene.id}`);
+      res.gate = { ...(await gate(state.dir)), hash: state.inputs.hash };
+      writeRecord(root, scene.id, { ...(readRecords(root)[scene.id] || {}), gate: res.gate });
+    }
+  }
+
   const before = fs.existsSync(state.file) ? fs.statSync(state.file).mtimeMs : 0;
   const limit = (userTimeout !== null ? userTimeout : Math.max(480, scene.frames * 3)) * 1000;
   note(`  footage overlay ${scene.id}: ${scene.frames} frames${draft ? ' (draft)' : ''}`);

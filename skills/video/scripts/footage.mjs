@@ -9,17 +9,22 @@
 //                                                                  every video of source/media.json that needs it, into work/norm/
 //   node footage.mjs still <file> [--at 1.5] [-o frame.jpg] [--width 540]
 //                                                                  one frame in true colours (also turns a photo into a JPEG)
-//   node footage.mjs edl <project> <file> [--words file.json] [--pause 0.5] [--pad 0.12] [--id s01] [--split]
+//   node footage.mjs edl <project> <file> [--words file.json] [--pause 0.5] [--pad 0.12] [--tail 1.5] [--id s01] [--split]
 //                                                                  proposes edl.json from a transcript: speech stays, pauses go
 //   node footage.mjs cut <project> [--whole <file>] [--set-scenes] [--dry-run]
 //                                                                  edl.json -> work/base/<id>.mp4, work/voice-raw.wav, work/audio-raw.wav,
 //                                                                  audio/words.json on the new timeline, work/scenes.json
 //   node footage.mjs captions <project> <id> [--position bottom|middle|top] [--mode highlight|reveal]
-//                             [--max-words 6] [--max-chars 18] [--lines 2] [--words audio/words.json] [--rewire]
+//                             [--max-words 6] [--max-chars 16] [--lines 2] [--words audio/words.json] [--rewire]
 //                                                                  word-synced captions into scenes/<id> (creates the scene if missing)
 //   node footage.mjs overlay <project> <id> [--draft] [--crf 16] [--workers n] [--subject cutout.webm] [--keep]
 //                                                                  renders scenes/<id> transparent and lays it over the base clip
 //                                                                  -> renders/<id>.mp4 (video only)
+//   node footage.mjs frames <project> <id> --at 0.5,1.8 [--out <dir>]
+//                                                                  the look test: the scene's graphics over the base clip at those
+//                                                                  times, as PNGs (no render needed)
+//   node footage.mjs trim <file> --from 2.4 --to 3.6 -o <scene>/assets/<name>.mp4 [--width 1080]
+//                                                                  a silent piece of a clip for a scene: a cutaway, a clip in a card
 //   node footage.mjs mux <video> --audio <file> -o <out.mp4>       joins a silent video with a sound file
 //   node footage.mjs matte <file> -o subject.webm [--quality fast|balanced|best] [--device auto|cpu|cuda|coreml]
 //                                                                  cuts the person out of a clip (transparent background)
@@ -170,7 +175,9 @@ async function still() {
       ...(/\.png$/i.test(dst) ? [] : ['-q:v', '2']), '-update', '1', dst], { cwd });
   } finally { if (cwd) removeTree(cwd); }
   const info = await mediaInfo(dst);
-  out({ ok: true, out: fwd(dst), at, width: info.width, height: info.height, from: p.kind });
+  const small = width > p.displayWidth;   // a larger size was asked than the source has: never enlarged
+  out({ ok: true, out: fwd(dst), at, width: info.width, height: info.height, from: p.kind,
+    ...(small ? { requested_width: width, note: `the source is only ${p.displayWidth} px wide, so it was kept at that size: enlarging adds no detail, and the scene scales the image anyway` } : {}) });
 }
 
 // ---------------------------------------------------------------------------------------------------- edl
@@ -192,11 +199,37 @@ async function edl() {
     if (last && w.start - last[last.length - 1].end <= pause) last.push(w); else runs.push([w]);
   }
   const snap = (t) => Math.round(t * fps) / fps;
+  const lv = info.hasAudio ? await levels(file) : null;
+  // Each edge moves to the quietest moment within 0.15 s (never into a word), so a cut never keeps half a sound.
+  const quietest = (t, lo, hi) => {
+    if (!lv) return t;
+    const from = Math.max(lo, t - 0.15), to = Math.min(hi, t + 0.15);
+    let best = t, bestDb = Infinity;
+    for (let k = Math.ceil(from / lv.hop); k * lv.hop <= to && k < lv.db.length; k++) if (lv.db[k] < bestDb) { bestDb = lv.db[k]; best = k * lv.hop; }
+    return best;
+  };
+  // The end of the video keeps up to `tail` seconds after the last word, for a closing title, stopping before the
+  // next sound: a frame within 20 dB of the speech (and clearly over the room) counts as a sound.
+  const tail = num(args.tail, 1.5);
+  const lastRun = runs[runs.length - 1], lastEnd = lastRun[lastRun.length - 1].end;
+  let tailEnd = Math.min(info.duration, lastEnd + pad);
+  if (lv && tail > pad) {
+    const inWords = []; for (const w of words) for (let k = Math.floor(w.start / lv.hop); k < Math.ceil(w.end / lv.hop) && k < lv.db.length; k++) inWords.push(lv.db[k]);
+    const pct = (arr, p) => { const s = Float32Array.from(arr).sort(); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : -90; };
+    const sound = Math.max(pct(inWords, 0.9) - 20, pct(lv.db, 0.1) + 8);
+    let stop = Math.min(info.duration, lastEnd + tail);
+    for (let k = Math.ceil((lastEnd + 0.25) / lv.hop); k * lv.hop < stop && k < lv.db.length; k++) if (lv.db[k] > sound) { stop = Math.max(lastEnd + pad, k * lv.hop - 0.05); break; }
+    tailEnd = stop;
+  }
   const segments = runs.map((r, i) => {
     const prevEnd = i ? runs[i - 1][runs[i - 1].length - 1].end : 0;
     const nextStart = runs[i + 1] ? runs[i + 1][0].start : info.duration;
-    const a = Math.max(r[0].start - pad, i ? (prevEnd + r[0].start) / 2 : 0, 0);
-    const b = Math.min(r[r.length - 1].end + pad, runs[i + 1] ? (r[r.length - 1].end + nextStart) / 2 : info.duration);
+    const first = r[0].start, end = r[r.length - 1].end, isLast = i === runs.length - 1;
+    let a = Math.max(first - pad, i ? (prevEnd + first) / 2 : 0, 0);
+    let b = isLast ? tailEnd : Math.min(end + pad, (end + nextStart) / 2);
+    // Listed word times can be off by about 0.1 s, so an edge keeps 80 ms from the listed start or end of a word.
+    a = quietest(a, i ? (prevEnd + first) / 2 : 0, Math.max(0, first - 0.08));
+    if (!isLast) b = quietest(b, end + 0.08, (end + nextStart) / 2);
     return { id: args.split ? `s${String(i + 1).padStart(2, '0')}` : id, src: rel(root, file), in: r3(snap(a)), out: r3(snap(b)), text: wordsText(r) };
   }).filter((s) => s.out - s.in >= 1 / fps);
   const kept = segments.reduce((s, x) => s + (x.out - x.in), 0);
@@ -204,7 +237,22 @@ async function edl() {
   const old = archiveExisting(file2);
   writeJson(file2, { segments });
   out({ ok: true, edl: 'edl.json', archived: old ? rel(root, old) : null, clip: rel(root, file), words: rel(root, wordsFile),
-    segments: segments.length, source_seconds: r3(info.duration), kept_seconds: r3(kept), removed_seconds: r3(info.duration - kept), list: segments });
+    segments: segments.length, source_seconds: r3(info.duration), kept_seconds: r3(kept), removed_seconds: r3(info.duration - kept),
+    tail_seconds: r3(Math.max(0, segments.length ? segments[segments.length - 1].out - lastEnd : 0)), list: segments });
+}
+
+// The level of a file's sound in 10 ms steps, in dB (mono, 16 kHz), or null when it has none.
+async function levels(file, hop = 0.01) {
+  const r = await runBinary(tool('ffmpeg'), ['-hide_banner', '-loglevel', 'error', '-i', file, '-map', '0:a:0', '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', 'pipe:1']);
+  if (r.code !== 0 || r.stdout.length < 4) return null;
+  const n = Math.round(16000 * hop), count = Math.floor(r.stdout.length / 4 / n);
+  const db = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    let e = 0;
+    for (let k = i * n; k < (i + 1) * n; k++) { const v = r.stdout.readFloatLE(k * 4); e += v * v; }
+    db[i] = 10 * Math.log10(e / n + 1e-12);
+  }
+  return { db, hop };
 }
 
 // ---------------------------------------------------------------------------------------------------- cut
@@ -495,9 +543,9 @@ const CAPTIONS_SRC = path.join(SKILL_ROOT, 'assets', 'template', 'lib', 'caption
 const MARK_A = '<!-- captions:start', MARK_B = '<!-- captions:end -->';
 
 function captionsBlock({ W, H, position, mode, maxWords, maxChars, lines }) {
-  const portrait = H > W, square = H === W;
+  const portrait = H > W;
   const y = { top: portrait ? 22 : 14, middle: 50, bottom: portrait ? 74 : 84 }[position];
-  const size = Math.round(portrait ? W * 0.066 : square ? W * 0.058 : H * 0.06);
+  const size = Math.round(Math.min(W, H) / 12);           // 90 px at 1080: supporting text is at least 90 px
   return `${MARK_A} (written by footage.mjs captions: change the variables freely, keep the two marker lines) -->
     <style>
       .fm-cap {
@@ -533,7 +581,7 @@ async function captions() {
   const mode = args.mode && args.mode !== true ? String(args.mode) : 'highlight';
   if (!['highlight', 'reveal'].includes(mode)) fail('--mode is highlight or reveal', 2);
   const portrait = H > W;
-  const opts = { W, H, position, mode, maxWords: num(args['max-words'], 6), maxChars: num(args['max-chars'], portrait ? 18 : H === W ? 22 : 30), lines: num(args.lines, 2) };
+  const opts = { W, H, position, mode, maxWords: num(args['max-words'], 6), maxChars: num(args['max-chars'], portrait ? 16 : H === W ? 18 : 28), lines: num(args.lines, 2) };
 
   const wordsFile = needFile(args.words && args.words !== true ? args.words : path.join('audio', 'words.json'), root, 'words file');
   const local = readWords(wordsFile)
@@ -684,10 +732,15 @@ async function overlay() {
   if (alpha.every((a) => a && a.max === 0)) warnings.push('the rendered graphics are empty on the first, middle and last frame');
 
   // 3. Lay the frames over the clip. The clip stays in its own YUV colours; only the graphics are converted.
+  // The engine writes a fully opaque frame (a full-frame photo, say) as an RGB PNG and the others as RGBA. Read
+  // directly, ffmpeg rebuilds its filter graph at each such switch and drops frames. So a first ffmpeg decodes the
+  // PNGs to raw RGBA, whatever each file holds, and pipes them into the compositor.
   t0 = Date.now();
-  const inputs = ['-i', clip, '-framerate', fpsArg(fps), '-start_number', String(first), '-i', `frame_%0${digits.length}d.png`];
+  const gfxInfo = await mediaInfo(path.join(framesDir, list[0]));
+  const gw = gfxInfo.width || W, gh = gfxInfo.height || H;
+  const inputs = ['-i', clip, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${gw}x${gh}`, '-framerate', fpsArg(fps), '-i', 'pipe:0'];
   const graph = [`[0:v]${[...baseChain, 'setpts=PTS-STARTPTS'].join(',')}[base]`,
-    '[1:v]scale=out_color_matrix=bt709:out_range=tv,format=yuva444p[gfx]'];
+    `[1:v]${gw !== W || gh !== H ? `scale=${W}:${H}:flags=lanczos,` : ''}scale=out_color_matrix=bt709:out_range=tv,format=yuva444p[gfx]`];
   let top = '[base][gfx]overlay=format=yuv420:alpha=straight:eof_action=pass';
   if (subject) {
     // The cutout of the person goes back on top, so the graphics sit behind them.
@@ -697,15 +750,114 @@ async function overlay() {
     top = '[mid][subj]overlay=format=yuv420:alpha=straight:eof_action=pass';
   }
   graph.push(`${top},format=yuv420p,${TAG_709}[v]`);
-  await ffmpeg([...inputs, '-filter_complex', graph.join(';'), '-map', '[v]', '-frames:v', String(frames), ...encode, dst], { cwd: framesDir });
+  const ff = tool('ffmpeg');
+  const dec = spawn(ff, ['-hide_banner', '-loglevel', 'error', '-framerate', fpsArg(fps), '-start_number', String(first), '-i', `frame_%0${digits.length}d.png`,
+    '-frames:v', String(frames), '-vf', 'format=rgba', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], { cwd: framesDir, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const enc = spawn(ff, ['-hide_banner', '-loglevel', 'error', '-y', ...inputs, '-filter_complex', graph.join(';'), '-map', '[v]', '-frames:v', String(frames), ...encode, dst],
+    { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+  enc.stdin.on('error', () => { /* the encoder stopped; its exit code says why */ });
+  const decDone = waitExit(dec), encDone = waitExit(enc);
+  dec.stdout.pipe(enc.stdin);
+  const [d, e] = await Promise.all([decDone, encDone]);
   timing.composite = r3((Date.now() - t0) / 1000);
+  const ffError = [d.code !== 0 ? `reading the frames failed: ${d.err.trim().split(/\r?\n/).slice(-2).join(' | ')}` : '',
+    e.code !== 0 ? `the composite failed: ${e.err.trim().split(/\r?\n/).slice(-2).join(' | ')}` : ''].filter(Boolean).join('; ');
 
-  const made = await mediaInfo(dst);
-  const ok = made.frames === frames && made.pixFmt === 'yuv420p' && made.width === W && made.height === H;
+  const made = fs.existsSync(dst) ? await mediaInfo(dst) : { frames: 0 };
+  const ok = !ffError && made.frames === frames && made.pixFmt === 'yuv420p' && made.width === W && made.height === H;
+  const error = ok ? undefined
+    : ffError || (made.frames !== frames ? `${made.frames} of ${frames} frames written` : `the result is ${made.width}x${made.height} ${made.pixFmt}, expected ${W}x${H} yuv420p`);
   if (!args.keep) { removeTree(work); try { fs.rmdirSync(path.dirname(work)); } catch { /* other scenes' frames are kept */ } }
-  out({ ok, id, out: rel(root, dst), overlay: true, route: 'png-sequence', frames: made.frames, expected_frames: frames, width: made.width, height: made.height,
+  out({ ok, ...(error ? { error } : {}), id, out: rel(root, dst), overlay: true, route: 'png-sequence', frames: made.frames, expected_frames: frames, width: made.width, height: made.height,
     pixFmt: made.pixFmt, transfer: made.transfer, primaries: made.primaries, subject: subject ? rel(root, subject) : null, draft, attempts,
     seconds: { ...timing, total: r3((Date.now() - started) / 1000) }, kept_frames: args.keep ? rel(root, framesDir) : null, warnings });
+  if (!ok) { process.stderr.write(`error: ${error}\n`); process.exit(1); }
+}
+
+// ---------------------------------------------------------------------------------------------------- frames
+// The look test of a footage scene: the scene's graphics at the given times (the engine's snapshots, transparent
+// where the scene is), laid over the base clip's own frame at each time, with the person's cutout on top when the
+// scene has one. No render is needed.
+async function frames() {
+  const { root, project } = loadProject(rest[0]);
+  const id = rest[1] || fail('give the scene id: frames <project> <id> --at 0.5,1.8', 2);
+  const scene = (project.scenes || []).find((s) => s.id === id) || fail(`scene "${id}" is not in project.json`, 2);
+  const W = project.width, H = project.height, fps = project.fps || 30;
+  const times = String(args.at && args.at !== true ? args.at : '').split(',').map((s) => s.trim()).filter(Boolean).map(Number);
+  if (!times.length || times.some((t) => !Number.isFinite(t) || t < 0)) fail('--at needs scene-local seconds, for example --at 0.5,1.8', 2);
+  const clip = needFile(scene.clip || path.join('work', 'base', `${id}.mp4`), root, 'base clip');
+  const info = await mediaInfo(clip);
+  const outDir = path.resolve(args.out && args.out !== true ? args.out : path.join(root, 'work', 'frames', `${id}-over`));
+  removeTree(outDir);                       // only this tool's own frames live here
+  fs.mkdirSync(outDir, { recursive: true });
+  const sceneDir = path.join(root, 'scenes', id), snapDir = path.join(outDir, 'graphics');
+  const NAME = /frame-(\d+)-at-([\d.]+)s\.png$/i;
+  let pngs = [];
+  if (fs.existsSync(path.join(sceneDir, 'index.html'))) {
+    const r = await engine(['snapshot', sceneDir, '--at', times.join(','), '--no-end', '-o', snapDir], { timeoutMs: 300000, stallMs: 120000 });
+    if (r.code === 127) fail(`the video engine could not start: ${r.stderr.trim().split(/\r?\n/).pop()}`, 3);
+    pngs = fs.existsSync(snapDir) ? fs.readdirSync(snapDir).filter((f) => NAME.test(f)).sort((a, b) => Number(a.match(NAME)[1]) - Number(b.match(NAME)[1])) : [];
+    if (r.code !== 0 || pngs.length < times.length) {
+      fail(`the engine could not take the frames (${pngs.length} of ${times.length}): ${(r.stderr || r.stdout).trim().split(/\r?\n/).slice(-2).join(' | ')}`, 1);
+    }
+  }
+  const subject = scene.subject ? locate(scene.subject, root) : null;
+  const fit = fitFilters(info.width, info.height, W, H, { fit: scene.fit, focus: scene.focus, zoom: Number(scene.zoom || 1) });
+  const toRgb = 'scale=in_color_matrix=bt709:in_range=tv:out_range=pc,format=rgba';
+  const result = [];
+  for (const [i, t] of times.entries()) {
+    const at = Math.min(Math.round(t * fps) / fps, Math.max(0, info.duration - 1 / fps));
+    const dst = path.join(outDir, `frame-${String(i).padStart(2, '0')}-at-${t}s.png`);
+    const inputs = ['-ss', at.toFixed(4), '-i', clip];
+    const graph = [`[0:v]${[...fit, toRgb].join(',')}[l0]`];
+    let last = '[l0]', k = 1;
+    if (pngs[i]) { inputs.push('-i', path.join(snapDir, pngs[i])); graph.push(`[${k}:v]format=rgba[g]`, `${last}[g]overlay=format=auto[l1]`); last = '[l1]'; k++; }
+    if (subject) {
+      inputs.push(...(/\.webm$/i.test(subject) ? ['-c:v', 'libvpx-vp9'] : []), '-ss', at.toFixed(4), '-i', subject);
+      graph.push(`[${k}:v]${[...fit, 'format=rgba'].join(',')}[s]`, `${last}[s]overlay=format=auto[l2]`); last = '[l2]';
+    }
+    graph.push(`${last}format=rgb24[v]`);
+    await ffmpeg([...inputs, '-filter_complex', graph.join(';'), '-map', '[v]', '-frames:v', '1', '-update', '1', dst]);
+    result.push({ t, file: fwd(dst) });
+  }
+  if (!args.keep) removeTree(snapDir);
+  out({ ok: true, scene: id, over: rel(root, clip), graphics: pngs.length > 0, subject: subject ? rel(root, subject) : null, frames: result, dir: fwd(outDir) });
+}
+
+// ---------------------------------------------------------------------------------------------------- trim
+// A piece of a clip as a silent H.264 file for a scene's assets: a cutaway that covers a cut, or a clip in a card.
+// Colour, rotation and frame rate are handled as in normalize, so any clip can be the source.
+async function trim() {
+  const file = needFile(rest[0]);
+  if (!args.out || args.out === true) fail('give the output: -o "<project>/scenes/<id>/assets/<name>.mp4"', 2);
+  const dst = path.resolve(args.out);
+  if (!/\.mp4$/i.test(dst)) fail('the output ends with .mp4', 2);
+  if (dst === file) fail('the output would overwrite the source', 2);
+  const root = findProjectRoot(dst) || findProjectRoot(file);
+  const fps = num(args.fps, root ? readJson(path.join(root, 'project.json')).fps || 30 : 30);
+  const p = await probeFootage(file, { fps });
+  if (p.kind !== 'video') fail('not a video', 2);
+  if (p.hdrKind) p.hdrPeak = 10;
+  const a = num(args.from, 0), b = num(args.to, p.duration);
+  if (!(a >= 0) || !(b > a) || b > p.duration + 0.05) fail(`--from and --to must be inside the clip (0 to ${r3(p.duration)} s)`, 2);
+  const inFrame = toFrames(a, fps), count = Math.max(1, toFrames(Math.min(b, p.duration), fps) - inFrame);
+  const width = num(args.width, 0);
+  const size = width > 0 && width < p.displayWidth ? { w: even(width), h: even((p.displayHeight * width) / p.displayWidth) } : null;
+  const colour = await colourFilters(p, { size, forceLut: Boolean(args.lut) });
+  let cwd;
+  if (colour.cube) { cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'fm-lut-')); fs.writeFileSync(path.join(cwd, 'fm-hdr.cube'), colour.cube); }
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  const seek = Math.max(0, (inFrame - 0.5) / fps);
+  try {
+    await ffmpeg([...(seek > 0 ? ['-ss', seek.toFixed(6)] : []), '-i', file, '-map', '0:v:0', '-an', '-sn', '-dn',
+      '-vf', [`fps=${fpsArg(fps)}`, ...colour.filters, 'setsar=1', TAG_709].join(','), '-frames:v', String(count),
+      ...x264({ crf: 16, preset: 'medium', fps }), '-map_metadata', '-1', '-movflags', '+faststart', dst], { cwd });
+  } finally { if (cwd) removeTree(cwd); }
+  const made = await mediaInfo(dst);
+  const ok = made.frames === count;
+  out({ ok, ...(ok ? {} : { error: `${made.frames} of ${count} frames written` }), out: fwd(dst), from: r3(inFrame / fps), to: r3((inFrame + count) / fps),
+    frames: made.frames, seconds: r3(count / fps), width: made.width, height: made.height, method: colour.method,
+    src_in_scene: path.basename(path.dirname(dst)) === 'assets' ? fwd(path.relative(path.dirname(path.dirname(dst)), dst)) : null });
   if (!ok) process.exit(1);
 }
 
@@ -752,6 +904,6 @@ async function matte() {
 }
 
 // ---------------------------------------------------------------------------------------------------- run
-const jobs = { probe, normalize, 'normalize-all': normalizeAll, still, edl, cut, captions, overlay, mux, matte };
+const jobs = { probe, normalize, 'normalize-all': normalizeAll, still, edl, cut, captions, overlay, frames, trim, mux, matte };
 if (!jobs[job]) fail(`unknown command "${job}". Run with --help.`, 2);
 try { await jobs[job](); } catch (e) { fail(e.message || String(e), 1); }

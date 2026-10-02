@@ -121,6 +121,8 @@ node "<SKILL>/scripts/render.mjs" my-video s01 --mblur s01
   opaque, so a grain texture "hides" every word. Keep a full-frame texture's strength in the layer's own `opacity`,
   under 0.6. A decorative copy of a text (a shine, a glow copy) gets `data-layout-ignore aria-hidden="true"`.
   `data-layout-allow-occlusion` goes on the covered text, never on the layer that covers it.
+- **Comments in scene script files are `//` lines.** A block comment at the top of a script file breaks the
+  engine's check and its snapshots, while the render still works.
 - **A known lint false alarm.** `overlapping_gsap_tweens` fires on a loop that tweens one proxy object at several
   different times. When the times really differ, ignore it.
 - Footage scenes: with `overlay: true` render calls `footage.mjs overlay <project> <id>` (plus `--draft`,
