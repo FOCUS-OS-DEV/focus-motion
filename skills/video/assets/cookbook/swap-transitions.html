@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: swap-transitions
+      What    Four ways to change what a frame shows (a card, a phone screen, a video tile) without leaving the
+              scene: a swipe, a zoom through, a 3D flip and an iris.
+      How     The frame is a card with two faces. The front face stacks panes 1 to 3, the back face panes 4 and 5.
+              Swipe: two panes travel together. Zoom through: the pane rushes at the lens and blurs, a hard cut
+              hides under a short flash, the next pane lands from larger. Flip: the card turns half a turn and
+              shows its back face. Iris: a circle opens from the centre onto the last pane.
+      Change  Colours in :root and the --c of each pane. What a pane holds. T_SWIPE, T_ZOOM, T_FLIP, T_IRIS, the labels.
+      Traps   The swipe and the iris cut through whatever the pane holds, so a pane that goes through them holds
+              shapes, pictures or numbers, never a Hebrew word (a half hidden Hebrew word reads as dashes). Words
+              stay outside the frame, whole. overflow: hidden goes on the faces, not on the card: on the card it
+              flattens the 3D and the flip shows nothing. Every pane keeps moving a little, so the frame is alive
+              between swaps. A swap needs a reason: use one kind per scene, not all four.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 960px; }
+      .label { position: absolute; left: 80px; right: 80px; top: 390px; text-align: center; white-space: nowrap; line-height: 1;
+               font-size: 120px; font-weight: 900; color: var(--ink); opacity: 0; }
+      #frame { position: absolute; left: 230px; top: 620px; width: 620px; height: 880px; perspective: 1700px; }
+      #card { position: absolute; inset: 0; transform-style: preserve-3d; }
+      .face { position: absolute; inset: 0; border-radius: 56px; overflow: hidden; backface-visibility: hidden;
+              box-shadow: 0 50px 110px rgba(0, 0, 0, 0.55); }
+      #back { transform: rotateY(180deg); }
+      .pane { position: absolute; inset: 0; background: var(--c); display: flex; align-items: center; justify-content: center;
+              font-size: 440px; font-weight: 900; line-height: 1; color: var(--bg); direction: ltr; }
+      .pane i { position: absolute; left: 110px; top: 240px; width: 400px; height: 400px; border-radius: 50%;
+                background: color-mix(in srgb, var(--bg) 13%, transparent); }
+      .pane b { position: relative; }
+      #p3 { visibility: hidden; }
+      #p5 { --r: 0%; clip-path: circle(var(--r) at 50% 50%); }
+      #flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4.8" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div class="label" dir="rtl">ארבעה מעברים</div>
+        <div class="label" dir="rtl">החלקה</div>
+        <div class="label" dir="rtl">זום פנימה</div>
+        <div class="label" dir="rtl">היפוך</div>
+        <div class="label" dir="rtl">עיגול נפתח</div>
+        <div id="frame">
+          <div id="card">
+            <div class="face" id="front">
+              <div class="pane" id="p1" style="--c: var(--ink)"><i></i><b>1</b></div>
+              <div class="pane" id="p2" style="--c: var(--accent)"><i></i><b>2</b></div>
+              <div class="pane" id="p3" style="--c: var(--accent-2)"><i></i><b>3</b></div>
+              <div id="flash"></div>
+            </div>
+            <div class="face" id="back">
+              <div class="pane" id="p4" style="--c: var(--ink)"><i></i><b>4</b></div>
+              <div class="pane" id="p5" style="--c: var(--accent)"><i></i><b>5</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 4.8;
+      const T_SWIPE = 0.9, T_ZOOM = 1.9, T_FLIP = 2.9, T_IRIS = 3.9;
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      // every pane is alive: its shape drifts for the whole scene, whether the pane is showing or not
+      tl.fromTo(".pane i", { x: -70, y: 50, scale: 0.9 }, { x: 70, y: -60, scale: 1.2, duration: DUR, ease: "sine.inOut" }, 0);
+
+      // 1. Swipe: the next pane pushes the current one out, the way a feed moves.
+      tl.fromTo("#p1", { yPercent: 0 }, { yPercent: -100, duration: 0.42, ease: "power4.out" }, T_SWIPE);
+      tl.fromTo("#p2", { yPercent: 100 }, { yPercent: 0, duration: 0.42, ease: "power4.out" }, T_SWIPE);
+
+      // 2. Zoom through: pane 2 rushes at the lens, the cut hides under a flash, pane 3 lands from larger.
+      const CUT = T_ZOOM + 0.16;
+      later("#p2", { scale: 1, filter: "blur(0px)" }, { scale: 2.4, filter: "blur(8px)", duration: 0.16, ease: "power3.in" }, T_ZOOM);
+      tl.set("#p2", { autoAlpha: 0 }, CUT);
+      tl.set("#p3", { autoAlpha: 1 }, CUT);
+      tl.fromTo("#p3", { scale: 1.6, filter: "blur(6px)" }, { scale: 1, filter: "blur(0px)", duration: 0.32, ease: "expo.out" }, CUT);
+      tl.fromTo("#flash", { opacity: 0 }, { opacity: 0.4, duration: 0.08, ease: "power2.in" }, CUT - 0.08);
+      later("#flash", { opacity: 0.4 }, { opacity: 0, duration: 0.16, ease: "power2.out" }, CUT);
+
+      // 3. Flip: half a turn to the back face. The card is edge on in the middle, and dips a little as it turns.
+      tl.fromTo("#card", { rotationY: 0 }, { rotationY: 180, duration: 0.34, ease: "power3.inOut" }, T_FLIP);
+      later("#card", { scale: 1 }, { scale: 0.9, duration: 0.17, ease: "power2.out" }, T_FLIP);
+      later("#card", { scale: 0.9 }, { scale: 1, duration: 0.3, ease: "back.out(2)" }, T_FLIP + 0.17);
+
+      // 4. Iris: the radius of the circle is a CSS variable, and GSAP moves the variable.
+      tl.fromTo("#p5", { "--r": "0%" }, { "--r": "75%", duration: 0.34, ease: "power2.out" }, T_IRIS);
+
+      // The labels: each one names the swap as it happens and leaves before the next.
+      const starts = [0, T_SWIPE, T_ZOOM, T_FLIP, T_IRIS];
+      gsap.utils.toArray(".label").forEach((el, i) => {
+        if (i === 0) tl.fromTo(el, { opacity: 0.7, y: 18 }, { opacity: 1, y: 0, duration: 0.2, ease: "power2.out" }, 0);
+        else tl.fromTo(el, { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.22, ease: "back.out(1.8)" }, starts[i]);
+        if (i < starts.length - 1) later(el, { opacity: 1, y: 0 }, { opacity: 0, y: -40, duration: 0.1, ease: "power2.in" }, starts[i + 1] - 0.13);
+      });
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

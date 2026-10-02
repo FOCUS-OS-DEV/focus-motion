@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: number-roll
+      What    Two ways to bring a number in: an odometer whose digits roll and settle one after another, and a plain
+              count-up. Both stop exactly on the value.
+      How     Odometer: every digit is a window over a tall strip of digits (0 to 9, repeated). The strip slides up
+              to the cell of its digit, and each column to the right turns one more full loop, so they settle left
+              to right. Count-up: one tween moves a number, and its setter writes the rounded value as text.
+      Change  Colours in :root. VALUE, PERCENT, the labels, CELL (the height of one digit), T_ROLL, ROLL, T_COUNT.
+      Traps   Never ease a number with an overshoot (back, elastic): it shows a value that is not true. Numbers are
+              left to right even in a Hebrew line, so the odometer box is dir="ltr" and the percent sits in a bdi.
+              Use tabular-nums and a fixed column width, or the number shakes while it counts. The line-height of a
+              strip cell must equal CELL.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 800px; }
+      #glow { position: absolute; left: 540px; top: 800px; width: 1500px; height: 1200px; margin: -600px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 24%, transparent) 0%, transparent 64%); }
+      .row { position: absolute; left: 80px; right: 80px; text-align: center; white-space: nowrap; line-height: 1; color: var(--ink); }
+      #label { top: 440px; font-size: 104px; font-weight: 700; }
+      /* The odometer. One .col is a window of one digit; its .strip is the tall column of digits behind it. */
+      #odo { top: 580px; height: 300px; direction: ltr; display: flex; justify-content: center;
+             font-size: 270px; font-weight: 900; font-variant-numeric: tabular-nums; }
+      .col { display: block; width: 0.7em; height: 300px; overflow: hidden;
+             -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 84%, transparent 100%);
+             mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 84%, transparent 100%); }
+      .strip { display: block; }
+      .strip i { display: block; height: 300px; line-height: 300px; font-style: normal; text-align: center; }
+      .sep { display: block; width: 0.3em; line-height: 300px; text-align: center; }
+      #row2 { top: 960px; font-size: 104px; font-weight: 700; }
+      #row2 .w { display: inline-block; opacity: 0; }
+      #pct { display: inline-block; min-width: 2.1em; margin-right: 0.1em; font-size: 190px; font-weight: 900; color: var(--accent-2);
+             font-variant-numeric: tabular-nums; text-align: right; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div class="row" id="label" dir="rtl">סך הכול</div>
+        <div class="row" id="odo"></div>
+        <div class="row" id="row2" dir="rtl"><span class="w">הושלמו <bdi id="pct">0%</bdi></span></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.6;
+      const VALUE = 2480;       // the odometer lands on this
+      const PERCENT = 87;       // the count-up lands on this
+      const CELL = 300;         // the height of one digit cell, the same as in the CSS
+      const T_ROLL = 0.25, ROLL = 1.0;   // the roll starts, and how long the first column turns
+      const T_COUNT = 2.0;      // the second number comes in and counts
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // ---- Odometer: build one column per digit, then slide every strip to the cell of its digit.
+      const odo = document.getElementById("odo");
+      let n = 0, lastEnd = 0;
+      for (const ch of VALUE.toLocaleString("en-US")) {
+        if (ch === ",") { odo.insertAdjacentHTML("beforeend", '<span class="sep">,</span>'); continue; }
+        const loops = ++n, stop = loops * 10 + Number(ch);       // one more full loop for each column to the right
+        const cells = Array.from({ length: stop + 1 }, (_, k) => "<i>" + (k % 10) + "</i>").join("");
+        odo.insertAdjacentHTML("beforeend", '<span class="col"><span class="strip">' + cells + "</span></span>");
+        const dur = ROLL + (n - 1) * 0.14;
+        tl.fromTo(odo.lastElementChild.firstElementChild, { y: 0 }, { y: -stop * CELL, duration: dur, ease: "power3.out" }, T_ROLL);
+        lastEnd = T_ROLL + dur;
+      }
+      // the number has landed: one small pop, no overshoot on the digits themselves
+      later("#odo", { scale: 1 }, { scale: 1.06, duration: 0.09, ease: "power2.out", yoyo: true, repeat: 1 }, lastEnd - 0.12);
+
+      // ---- Count-up: a number object whose setter writes the text. The tween ends on PERCENT, so the text does too.
+      const pct = document.getElementById("pct");
+      const count = { _v: 0, get v() { return this._v; }, set v(x) { this._v = x; pct.textContent = Math.round(x) + "%"; } };
+      tl.fromTo("#row2 .w", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.26, ease: "back.out(1.7)" }, T_COUNT);
+      tl.fromTo(count, { v: 0 }, { v: PERCENT, duration: 0.9, ease: "power2.out" }, T_COUNT + 0.1);
+      later("#pct", { scale: 1 }, { scale: 1.12, duration: 0.1, ease: "power2.out", yoyo: true, repeat: 1 }, T_COUNT + 0.92);
+
+      // ---- the scene around them
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      tl.fromTo("#label", { opacity: 0.7, y: 18 }, { opacity: 1, y: 0, duration: 0.2, ease: "power2.out" }, 0);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

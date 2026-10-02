@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: particles-to-shape
+      What    A swarm of dots flows through the frame, then every dot finds its place on a shape (here a ring) and
+              the shape locks with a pulse.
+      How     Nothing is simulated. One tween moves a clock and draw(t) places every dot from that time alone: a point
+              on the swarm path, a point on the shape, and a weight per dot that blends the two. Any frame can be
+              asked for in any order and comes out the same.
+      Change  Colours in :root. COUNT, RADIUS, T_GATHER, T_LOCK and the word. shape(u) may return any closed outline
+              (u runs 0..1): a rounded square or a heart works the same way.
+      Traps   Seed the dots once, before the timeline. Do not give dots their own tweens "for variety": the weight
+              already staggers them. Keep the word out until the shape has locked, so the eye has one place to look.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 900px; }
+      #glow { position: absolute; left: 540px; top: 900px; width: 1400px; height: 1400px; margin: -700px 0 0 -700px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 32%, transparent) 0%, transparent 62%); }
+      .dot { position: absolute; left: 0; top: 0; border-radius: 50%; }
+      #pulse { position: absolute; left: 540px; top: 900px; width: 660px; height: 660px; margin: -330px 0 0 -330px; border-radius: 50%;
+               border: 6px solid var(--accent-2); opacity: 0; }
+      #word { position: absolute; left: 0; right: 0; top: 790px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 220px; font-weight: 900; color: var(--ink); opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="dots"></div>
+        <div id="pulse"></div>
+        <div id="word" dir="rtl">ביחד</div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same swarm on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(11);
+      const TAU = Math.PI * 2;
+
+      // ---- restyle here
+      const DUR = 4, COUNT = 96, RADIUS = 330, CX = 540, CY = 900;
+      const T_GATHER = 0.5;   // the first dot leaves the swarm
+      const T_LOCK = 1.9;     // every dot is on the shape: pulse, word
+      const COLORS = ["var(--accent)", "var(--accent)", "var(--accent-2)", "var(--ink)"];
+      const shape = (u) => [Math.cos(TAU * u), Math.sin(TAU * u)];   // a unit outline, u in 0..1
+
+      const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+      const seg = (t, a, b) => clamp((t - a) / (b - a));              // 0 before a, 1 after b
+      const inOut = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(2 - 2 * k, 3) / 2);
+      const mix = (a, b, k) => a + (b - a) * k;
+
+      const host = document.getElementById("dots");
+      const dots = Array.from({ length: COUNT }, (_, i) => {
+        const el = document.createElement("div"), size = Math.round(10 + 18 * Math.pow(rnd(), 1.6));
+        el.className = "dot";
+        Object.assign(el.style, { width: size + "px", height: size + "px", margin: -size / 2 + "px 0 0 " + -size / 2 + "px",
+                                  background: COLORS[Math.floor(rnd() * COLORS.length)] });
+        host.appendChild(el);
+        return { el, u: i / COUNT, jx: 150 * (rnd() + rnd() - 1), jy: 150 * (rnd() + rnd() - 1), r: 1 + 0.05 * (rnd() - 0.5) };
+      });
+
+      // Every dot, from the time alone.
+      function draw(t) {
+        const head = 1.5 * t + 0.6;                                      // where the swarm's head is on its path
+        const pulse = Math.sin(Math.PI * seg(t, T_LOCK, T_LOCK + 0.45));
+        const turn = 0.035 * t;                                          // the shape keeps turning, so nothing freezes
+        for (const d of dots) {
+          const w = inOut(seg(t, T_GATHER + 0.5 * d.u, T_GATHER + 0.5 * d.u + 0.85));
+          const f = head - d.u * 2.4;                                    // the swarm is a ribbon along a figure eight
+          const sx = CX + 330 * Math.sin(f) + d.jx, sy = CY + 520 * Math.sin(2 * f) + d.jy;
+          const [px, py] = shape((d.u + turn + (1 - w) * 0.25) % 1);     // it arrives along the outline, not straight
+          const R = RADIUS * d.r * (1 + 0.1 * pulse);
+          d.el.style.transform = `translate(${mix(sx, CX + R * px, w).toFixed(1)}px, ${mix(sy, CY + R * py, w).toFixed(1)}px) scale(${(1 + 0.35 * pulse).toFixed(3)})`;
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.06, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.8, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: T_LOCK, ease: "sine.inOut" }, 0);
+      tl.fromTo("#pulse", { scale: 1, opacity: 0.9 }, { scale: 1.6, opacity: 0, duration: 0.6, ease: "power2.out", immediateRender: false }, T_LOCK);
+      tl.fromTo("#word", { scale: 1.3, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: "back.out(2)", immediateRender: false }, T_LOCK);
+      tl.fromTo("#word", { scale: 1 }, { scale: 1.04, duration: DUR - T_LOCK - 0.3, ease: "none", immediateRender: false }, T_LOCK + 0.3);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

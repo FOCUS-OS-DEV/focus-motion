@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: keys-press
+      What    Keyboard keys as on-screen objects. First a key is only hovered: it lights up and a ring goes out, but
+              it is not pressed. Then two keys rise together, are pressed and held, and are released.
+      How     A key is two layers: a darker side and a top face, 22 px apart. A press moves only the top face down
+              onto the side, so the key looks pushed in. A hover is a tint and a ring on the face with no travel.
+              Keys that are pressed together move on the same frame.
+      Change  Colours in :root (--key, --key-side). The labels and widths of the keys, T_HOVER, T_PRESS, T_RELEASE,
+              the two captions.
+      Traps   Key labels are Latin, so each one is dir="ltr". A held key stays down until its own release tween.
+              Press within two frames and release with a little spring: a slow press reads as floating. A ring
+              that starts visible must not render before its time: give it immediateRender: false (later()).
+              The captions say what the hands do, one at a time.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --key: #f5f2ea; --key-side: #b9b2a3; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 1000px; }
+      #glow { position: absolute; left: 540px; top: 1060px; width: 1400px; height: 1000px; margin: -500px 0 0 -700px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 64%); }
+      .cap { position: absolute; left: 80px; right: 80px; top: 600px; text-align: center; white-space: nowrap; line-height: 1;
+             font-size: 120px; font-weight: 900; color: var(--ink); opacity: 0; }
+      .group { position: absolute; top: 960px; height: 212px; }
+      #enter { left: 320px; width: 440px; }
+      #combo { left: 190px; width: 700px; }
+      .key { position: absolute; top: 0; height: 212px; }
+      .shadow { position: absolute; left: 6%; right: 6%; bottom: -46px; height: 76px; border-radius: 50%; background: radial-gradient(ellipse, rgba(0, 0, 0, 0.5), transparent 70%); }
+      .side { position: absolute; left: 0; right: 0; top: 22px; height: 190px; border-radius: 36px; background: var(--key-side); }
+      .face { position: absolute; left: 0; right: 0; top: 0; height: 190px; border-radius: 36px; background: var(--key); color: var(--bg);
+              box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.9), inset 0 -10px 18px rgba(15, 18, 22, 0.08);
+              display: flex; align-items: center; justify-content: center; gap: 22px; font-size: 70px; font-weight: 700; line-height: 1; white-space: nowrap; }
+      .tint { position: absolute; inset: 0; border-radius: 36px; border: 5px solid var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); opacity: 0; }
+      .ring { position: absolute; left: -22px; right: -22px; top: -22px; height: 234px; border-radius: 54px; border: 8px solid var(--accent); opacity: 0; }
+      .face svg { position: relative; width: 56px; height: 56px; }
+      #shift { left: 0; width: 340px; }
+      #tab { left: 440px; width: 260px; }
+      #plus { position: absolute; left: 368px; top: 74px; width: 44px; height: 44px; opacity: 0; }
+      #plus i { position: absolute; border-radius: 4px; background: color-mix(in srgb, var(--ink) 55%, transparent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div class="cap" id="cap1" dir="rtl">רק מרחפים</div>
+        <div class="cap" id="cap2" dir="rtl">לוחצים יחד</div>
+        <div class="group" id="enter"><div id="enterFloat" class="key" style="left: 0; width: 440px">
+          <div class="shadow"></div><div class="side"></div>
+          <div class="face"><div class="tint"></div><span dir="ltr">Enter</span>
+            <svg viewBox="0 0 56 56" fill="none" stroke="#0f1216" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M44 10v22H14" /><path d="M24 21 13 32l11 11" /></svg></div>
+          <div class="ring"></div>
+        </div></div>
+        <div class="group" id="combo">
+          <div class="key" id="shift"><div class="shadow"></div><div class="side"></div><div class="face"><div class="tint"></div><span dir="ltr">Shift</span></div><div class="ring"></div></div>
+          <div id="plus"><i style="left: 0; top: 18px; width: 44px; height: 8px"></i><i style="left: 18px; top: 0; width: 8px; height: 44px"></i></div>
+          <div class="key" id="tab"><div class="shadow"></div><div class="side"></div><div class="face"><div class="tint"></div><span dir="ltr">Tab</span></div><div class="ring"></div></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.6;
+      const T_HOVER = 0.55;      // the single key is hovered, never pressed
+      const T_SWAP = 1.45;       // it leaves, the pair rises
+      const T_PRESS = 1.95;      // the pair is pressed together, on the beat
+      const T_RELEASE = 2.75;
+      const TRAVEL = 14;         // how far a pressed face goes down (less than the 22 px of the side)
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+
+      // ---- 1. hover: the key and the caption are already rising on frame 0; it lights up and rings, no travel
+      tl.fromTo("#cap1", { opacity: 0.7, y: 20 }, { opacity: 1, y: 0, duration: 0.22, ease: "power2.out" }, 0);
+      tl.fromTo("#enter", { y: 150, opacity: 0.6 }, { y: 0, opacity: 1, duration: 0.4, ease: "back.out(1.7)" }, 0);
+      tl.fromTo("#enter .tint", { opacity: 0 }, { opacity: 1, duration: 0.1, ease: "power1.out" }, T_HOVER);
+      later("#enter .ring", { scale: 1, opacity: 0.9 }, { scale: 1.16, opacity: 0, duration: 0.5, ease: "power2.out", repeat: 1 }, T_HOVER);
+      tl.fromTo("#enterFloat", { y: 0 }, { y: -14, duration: 0.4, ease: "sine.inOut", yoyo: true, repeat: 1 }, T_HOVER);
+      later("#enter", { x: 0, rotation: 0, opacity: 1 }, { x: 820, rotation: 9, opacity: 0, duration: 0.22, ease: "power2.in" }, T_SWAP - 0.2);
+      later("#cap1", { opacity: 1, y: 0 }, { opacity: 0, y: -50, duration: 0.12, ease: "power2.in" }, T_SWAP - 0.15);
+
+      // ---- 2. the pair rises, is pressed together and held, then released with a spring
+      tl.fromTo("#cap2", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.24, ease: "back.out(1.7)" }, T_SWAP);
+      tl.fromTo("#shift", { y: 300, opacity: 0 }, { y: 0, opacity: 1, duration: 0.24, ease: "expo.out" }, T_SWAP);
+      tl.fromTo("#tab", { y: 300, opacity: 0 }, { y: 0, opacity: 1, duration: 0.24, ease: "expo.out" }, T_SWAP + 0.05);
+      tl.fromTo("#plus", { scale: 0.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.18, ease: "back.out(2)" }, T_SWAP + 0.1);
+      const pair = ["#shift .face", "#tab .face"], tints = ["#shift .tint", "#tab .tint"];
+      tl.fromTo(pair, { y: 0 }, { y: TRAVEL, duration: 0.05, ease: "power2.in" }, T_PRESS - 0.05);
+      tl.fromTo(tints, { opacity: 0 }, { opacity: 1, duration: 0.05, ease: "none" }, T_PRESS - 0.04);
+      later(["#shift .ring", "#tab .ring"], { scale: 1, opacity: 0.85 }, { scale: 1.12, opacity: 0, duration: 0.45, ease: "power2.out" }, T_PRESS);
+      later(pair, { y: TRAVEL }, { y: 0, duration: 0.16, ease: "back.out(2.2)" }, T_RELEASE);
+      later(tints, { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "power1.out" }, T_RELEASE + 0.02);
+      later("#combo", { y: 0 }, { y: -10, duration: DUR - T_RELEASE - 0.2, ease: "sine.inOut" }, T_RELEASE + 0.2);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

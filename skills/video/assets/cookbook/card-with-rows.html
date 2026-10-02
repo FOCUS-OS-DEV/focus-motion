@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: card-with-rows
+      What    An empty document card slides up with grey placeholder bars. Its rows write in one by one, on the
+              beats, and the last row carries a small badge whose number ticks up like an odometer and turns to the
+              alert colour.
+      How     Each row has a placeholder bar for its label and one for its value; a bar fades out on the frame its
+              text starts to arrive. Labels slide in from the right (the reading direction) and values lift in.
+              The badge's digits sit in a window one digit high: on a tick the old digit leaves upward and the new
+              one comes up from below, both in the same tween time, so they never overlap.
+      Change  Colours in :root (--alert for the badge). ROWS, the beats in T_ROWS, TICKS, ALERT_AT, the title.
+      Traps   Every tick ends before the next one starts, so any frame can be asked for in any order. A value is a
+              number written in left to right order: give it dir="ltr" or a bdi. Keep the placeholder bars the
+              width of the text that replaces them, or the row seems to jump.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --alert: #ff4b4b; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 960px; }
+      #glow { position: absolute; left: 540px; top: 960px; width: 1500px; height: 1300px; margin: -650px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 24%, transparent) 0%, transparent 62%); }
+      #card { position: absolute; left: 100px; top: 560px; width: 880px; height: 760px; border-radius: 48px; background: var(--ink); color: var(--bg);
+              box-shadow: 0 60px 120px rgba(0, 0, 0, 0.55); }
+      #card h2 { position: absolute; right: 64px; top: 56px; font-size: 68px; font-weight: 800; line-height: 1.1; white-space: nowrap; }
+      #rule { position: absolute; left: 64px; right: 64px; top: 160px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--bg) 9%, transparent); }
+      .row { position: absolute; left: 64px; right: 64px; height: 90px; display: flex; align-items: center; justify-content: space-between;
+             font-size: 52px; line-height: 1; white-space: nowrap; }
+      .lab { font-weight: 600; opacity: 0; display: flex; align-items: center; gap: 22px; }
+      .val { font-weight: 800; opacity: 0; font-variant-numeric: tabular-nums; }
+      .sk { position: absolute; top: 31px; height: 28px; border-radius: 14px; background: color-mix(in srgb, var(--bg) 8%, transparent); }
+      .sk.l { right: 0; } .sk.v { left: 0; }
+      #foot { position: absolute; right: 64px; top: 640px; font-size: 40px; font-weight: 500; line-height: 1; white-space: nowrap; opacity: 0;
+              color: color-mix(in srgb, var(--bg) 55%, transparent); }
+      /* the badge: a pill with a turn arrow and a window one digit high */
+      #badge { display: flex; align-items: center; gap: 10px; height: 68px; padding: 0 20px; border-radius: 34px; background: var(--bg); opacity: 0; }
+      #badge svg { width: 40px; height: 40px; }
+      #win { position: relative; width: 34px; height: 54px; overflow: hidden; }
+      #win b { position: absolute; left: 0; top: 0; width: 34px; height: 54px; line-height: 54px; text-align: center; font-size: 48px; font-weight: 800; color: #fff; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="card" dir="rtl">
+          <h2>דוח שבועי</h2>
+          <div id="rule"></div>
+          <div id="rows"></div>
+          <div id="foot">עודכן היום</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.4;
+      const ROWS = [["משימות שהושלמו", "12", 360], ["פגישות", "4", 170], ["סבבי משוב", null, 250]];   // [label, value, placeholder width]
+      const T_ROWS = [0.45, 0.85, 1.25];          // a row writes in on each beat
+      const TICKS = [1.75, 2.1, 2.45, 2.8];        // the badge goes to 2, 3, 4, 5 on these beats
+      const ALERT_AT = 2;                          // from the third tick on, the badge turns to the alert colour
+
+      const BADGE = '<span id="badge" dir="ltr"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">' +
+                    '<path id="turn" d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5" /></svg><span id="win">' + [1, 2, 3, 4, 5].map((n) => "<b>" + n + "</b>").join("") + "</span></span>";
+      document.getElementById("rows").innerHTML = ROWS.map(([label, value, w], i) =>
+        '<div class="row" style="top:' + (200 + i * 130) + 'px"><i class="sk l" style="width:' + w + 'px"></i>' + (value ? '<i class="sk v" style="width:70px"></i>' : "") +
+        '<span class="lab">' + label + (value ? "" : BADGE) + "</span>" + (value ? '<span class="val" dir="ltr">' + value + "</span>" : "") + "</div>").join("");
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      // frame 0: the empty card is sliding up, it settles as the first row arrives
+      tl.fromTo("#card", { y: 380 }, { y: 0, duration: 0.7, ease: "back.out(1.3)" }, 0);
+      later("#card", { rotation: -2.4 }, { rotation: -1, duration: DUR, ease: "none" }, 0);
+
+      // ---- the rows: the placeholder goes, the label slides in from the right, the value lifts in
+      gsap.utils.toArray(".row").forEach((row, i) => {
+        const at = T_ROWS[i];
+        tl.fromTo(row.querySelectorAll(".sk"), { opacity: 1 }, { opacity: 0, duration: 0.06, ease: "none", immediateRender: false }, at);
+        tl.fromTo(row.querySelector(".lab"), { opacity: 0, x: 44 }, { opacity: 1, x: 0, duration: 0.22, ease: "power3.out" }, at + 0.04);
+        const val = row.querySelector(".val");
+        if (val) tl.fromTo(val, { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.2, ease: "power3.out" }, at + 0.2);
+      });
+      tl.fromTo("#foot", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.24, ease: "power2.out" }, T_ROWS[2] + 0.4);
+
+      // ---- the badge: lands with its row, then ticks like an odometer
+      tl.fromTo("#badge", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.24, ease: "back.out(2.2)" }, T_ROWS[2] + 0.1);
+      const digits = gsap.utils.toArray("#win b");
+      tl.fromTo(digits[0], { y: 54 }, { y: 0, duration: 0.2, ease: "power3.out" }, T_ROWS[2] + 0.1);
+      TICKS.forEach((at, k) => {
+        const gap = (TICKS[k + 1] || DUR) - at, d = Math.min(0.2, gap - 0.02);
+        later(digits[k], { y: 0 }, { y: -54, duration: d, ease: "power3.out" }, at);             // the old digit leaves upward
+        tl.fromTo(digits[k + 1], { y: 54 }, { y: 0, duration: d, ease: "power3.out" }, at);       // the new one comes up from below
+        later("#badge", { scale: 1 }, { scale: 1.2, duration: 0.06, ease: "power2.out" }, at);
+        later("#badge", { scale: 1.2 }, { scale: 1, duration: Math.min(0.22, gap - 0.08), ease: "back.out(2)" }, at + 0.06);
+        later("#turn", { rotation: 360 * k }, { rotation: 360 * (k + 1), duration: Math.min(0.45, gap - 0.02), ease: "power3.out", transformOrigin: "50% 50%" }, at);
+      });
+      later("#badge", { backgroundColor: "#0f1216" }, { backgroundColor: "#ff4b4b", duration: 0.1, ease: "none" }, TICKS[ALERT_AT]);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

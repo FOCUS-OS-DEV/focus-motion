@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+# local test projects and renders never belong in the repo
+/_test/
+/tmp/
+*.mp4
+*.mov
+*.webm

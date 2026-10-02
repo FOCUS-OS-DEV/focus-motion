@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: ring-draws
+      What    An outline draws itself around the chosen card and locks with a small pop and a halo. A ring then
+              draws beside the label, and a check mark draws inside it.
+      How     Every stroke has pathLength="1", so its whole length counts as 1 whatever its shape. With a dash of 1,
+              the dash offset is the part still hidden: tween it from 1 to 0 and the line draws. The same three lines
+              of code draw a rectangle, a circle and a free path.
+      Change  Colours in :root. Which card is chosen (PICK), the times, the stroke widths, the labels.
+      Traps   A round line cap paints a dot even when nothing is drawn yet: keep the stroke at opacity 0 until its
+              draw starts. A rectangle starts drawing at its top left corner; the outline here is mirrored so it
+              starts top right and runs with the Hebrew. Let the outline finish before the pop, or the pop hides it.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 520px 900px; }
+      .card { position: absolute; left: 110px; width: 820px; height: 220px; border-radius: 48px; background: color-mix(in srgb, var(--ink) 9%, var(--bg));
+              box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--ink) 14%, transparent); transform-origin: 50% 50%; }
+      .card .label { position: absolute; right: 64px; top: 0; line-height: 216px; white-space: nowrap; font-size: 86px; font-weight: 800; color: var(--ink); }
+      /* the cards keep to x 110..930: below y 1150 a reel's own buttons cover the right edge */
+      /* the strokes live in one SVG laid over the chosen card; overflow stays visible for the halo */
+      #marks { position: absolute; left: 110px; width: 820px; height: 220px; overflow: visible; transform-origin: 50% 50%; }
+      .stroke { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+      #outline { stroke: var(--accent); stroke-width: 10; }
+      #halo { stroke: var(--accent); stroke-width: 20; filter: blur(14px); }
+      #ring { stroke: var(--accent-2); stroke-width: 9; }
+      #check { stroke: var(--accent-2); stroke-width: 13; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div class="card" style="top: 510px"><div class="label" dir="rtl">אפשרות ראשונה</div></div>
+        <div class="card" style="top: 790px"><div class="label" dir="rtl">אפשרות שנייה</div></div>
+        <div class="card" style="top: 1070px"><div class="label" dir="rtl">אפשרות שלישית</div></div>
+        <svg id="marks" viewBox="0 0 820 220">
+          <!-- mirrored, so the rectangle starts at its top right corner and runs to the left -->
+          <g transform="translate(820 0) scale(-1 1)">
+            <rect id="halo" class="stroke" x="-16" y="-16" width="852" height="252" rx="62" />
+            <rect id="outline" class="stroke" x="-16" y="-16" width="852" height="252" rx="62" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+          </g>
+          <circle id="ring" class="stroke" cx="104" cy="110" r="52" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" transform="rotate(-90 104 110)" />
+          <path id="check" class="stroke" d="M 81 112 L 98 129 L 129 92" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+        </svg>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.2, PICK = 1;   // the chosen card, counted from the top (0, 1, 2)
+      const T_CARDS = 0;           // the cards are already arriving on frame 0
+      const T_DRAW = 0.8;          // the outline starts
+      const DRAW = 0.5;            // how long it takes to go around
+      const T_LOCK = T_DRAW + DRAW;
+      const T_CHECK = T_LOCK + 0.2;
+
+      const cards = gsap.utils.toArray(".card");
+      document.getElementById("marks").style.top = cards[PICK].style.top;
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      // draws a stroke: it becomes visible on its first frame, and the hidden part shrinks from all to nothing
+      const drawOn = (sel, at, dur, ease = "power2.inOut") => {
+        later(sel, { opacity: 0 }, { opacity: 1, duration: 0.001 }, at);
+        later(sel, { attr: { "stroke-dashoffset": 1 } }, { attr: { "stroke-dashoffset": 0 }, duration: dur, ease }, at);
+      };
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      // the cards rise in reading order, two frames apart; the first is already half way on frame 0
+      cards.forEach((c, i) => tl.fromTo(c, { y: i ? 90 : 36, opacity: i ? 0 : 0.6 }, { y: 0, opacity: 1, duration: 0.3, ease: "back.out(1.5)" }, T_CARDS + i * 0.07));
+
+      // the outline goes around the chosen card
+      drawOn("#outline", T_DRAW, DRAW);
+      // the lock: the card and its outline pop as one and settle, a soft halo flares once, the others step back
+      const chosen = [cards[PICK], "#marks"];
+      later(chosen, { scale: 1.07 }, { scale: 1.03, duration: 0.3, ease: "back.out(2.6)" }, T_LOCK);
+      later("#halo", { opacity: 0.95 }, { opacity: 0.3, duration: 0.6, ease: "power2.out" }, T_LOCK);
+      cards.forEach((c, i) => { if (i !== PICK) later(c, { opacity: 1, scale: 1 }, { opacity: 0.4, scale: 0.97, duration: 0.3, ease: "power2.out" }, T_LOCK); });
+      // the check: the ring goes around, then the tick is drawn in it
+      drawOn("#ring", T_CHECK, 0.3);
+      drawOn("#check", T_CHECK + 0.24, 0.2, "power2.out");
+      // the hold keeps breathing
+      later(chosen, { scale: 1.03 }, { scale: 1.05, duration: DUR - T_LOCK - 0.3, ease: "none" }, T_LOCK + 0.3);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

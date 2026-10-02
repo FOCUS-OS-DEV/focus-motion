@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: terminal-prompt
+      What    A terminal window slides in, a short request is typed into it, Enter is pressed (the field flashes and
+              the window takes the hit), and the answer starts: lines of progress appear and a bar runs.
+      How     The window is HTML: a title bar with three dots and a title, an input row, an output area. The typing
+              is drawn from a clock, letter by letter in reading order, with the caret on the left. Enter is a set
+              of things that start on one frame: a flash on the field, the typed text dims, the window punches in
+              and settles, and the output begins.
+      Change  Colours in :root. TITLE, REQUEST, STEPS (the output lines), T_TYPE, TYPE_DUR, T_ENTER.
+      Traps   The prompt mark sits at the start of the line, which is the right side for Hebrew. The title of the
+              window is a plain word, never the name of a real product. Output lines appear whole, one per beat,
+              and there are few of them: a picture of work being done, not a log to read. The bar under the output
+              fills left to right and is still moving on the last frame.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --window: #1a1d24; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam, #punch { position: absolute; inset: 0; transform-origin: 540px 920px; }
+      #glow { position: absolute; left: 540px; top: 920px; width: 1500px; height: 1200px; margin: -600px 0 0 -750px; border-radius: 50%; opacity: 0.5;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 34%, transparent) 0%, transparent 62%); }
+      #term { position: absolute; left: 60px; top: 580px; width: 960px; height: 690px; border-radius: 40px; background: var(--window); overflow: hidden;
+              border: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: 0 60px 120px rgba(0, 0, 0, 0.6); }
+      #bar { position: absolute; left: 0; right: 0; top: 0; height: 96px; border-bottom: 2px solid rgba(255, 255, 255, 0.07); }
+      #dots { position: absolute; left: 36px; top: 37px; display: flex; gap: 14px; }
+      #dots i { width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, 0.22); }
+      #title { position: absolute; left: 0; right: 0; top: 0; line-height: 96px; text-align: center; font-size: 40px; font-weight: 600; color: rgba(255, 255, 255, 0.6); }
+      #input { position: absolute; left: 44px; right: 44px; top: 136px; height: 150px; border-radius: 26px; overflow: hidden;
+               border: 3px solid color-mix(in srgb, var(--ink) 20%, transparent); display: flex; align-items: center; padding: 0 36px; }
+      #flash { position: absolute; inset: 0; background: var(--accent); opacity: 0; }
+      #mark { position: relative; flex: none; margin-left: 28px; font-size: 64px; font-weight: 800; line-height: 1; color: var(--accent); }
+      #typed { position: relative; font-size: 62px; font-weight: 600; line-height: 1; white-space: pre; color: var(--ink); }
+      #caret { position: relative; flex: none; width: 7px; height: 70px; margin-right: 10px; border-radius: 4px; background: var(--accent); }
+      .out { position: absolute; right: 60px; display: flex; align-items: center; gap: 24px; opacity: 0;
+             font-size: 48px; font-weight: 600; line-height: 1; white-space: nowrap; color: color-mix(in srgb, var(--ink) 85%, transparent); }
+      .out i { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--accent-2); }
+      #track { position: absolute; left: 60px; right: 60px; top: 610px; height: 14px; border-radius: 7px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+      #fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 7px; background: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="punch">
+          <div id="term">
+            <div id="bar"><div id="dots"><i></i><i></i><i></i></div><div id="title" dir="ltr">Terminal</div></div>
+            <div id="input" dir="rtl"><div id="flash"></div><span id="mark" dir="ltr">&gt;</span><span id="typed"></span><span id="caret"></span></div>
+            <div id="outs" dir="rtl"></div>
+            <div id="track"><div id="fill"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same typing rhythm on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(3);
+
+      // ---- restyle here
+      const DUR = 3.4;
+      const REQUEST = "תכין לי סרטון קצר";
+      const STEPS = ["קורא את הבקשה", "מכין תוכנית", "מתחיל לבנות"];
+      const T_TYPE = 0.5, TYPE_DUR = 1.0;    // the typing starts, and how long it takes
+      const T_ENTER = 1.8;                    // Enter, on the beat
+
+      // ---- the typing clock: how many characters are due at time t, and the caret blink while waiting
+      const gaps = Array.from(REQUEST, (c, i) => (i === 0 ? 0 : c === " " ? 1.5 : 0.75 + 0.5 * rnd()));
+      const total = gaps.reduce((a, b) => a + b, 0);
+      let sum = 0;
+      const times = gaps.map((g) => T_TYPE + TYPE_DUR * (sum += g) / total);
+      const typed = document.getElementById("typed"), caret = document.getElementById("caret");
+      function draw(t) {
+        typed.textContent = REQUEST.slice(0, times.filter((at) => at <= t).length);
+        const typing = t >= T_TYPE - 0.1 && t <= times[times.length - 1] + 0.15;
+        caret.style.opacity = t >= T_ENTER ? 0 : !typing && Math.floor(t / 0.26) % 2 === 1 ? 0.12 : 1;
+      }
+      document.getElementById("outs").innerHTML = STEPS.map((s, i) => '<div class="out" style="top:' + (330 + i * 86) + 'px"><i></i>' + s + "</div>").join("");
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.04, duration: DUR, ease: "none" }, 0);
+      // frame 0: the window is already sliding up into place
+      tl.fromTo("#term", { y: 130, rotation: 2 }, { y: 0, rotation: 0, duration: 0.55, ease: "back.out(1.3)" }, 0);
+
+      // ---- Enter: one frame starts it all
+      tl.fromTo("#flash", { opacity: 0.75 }, { opacity: 0, duration: 0.32, ease: "power2.out", immediateRender: false }, T_ENTER);
+      tl.fromTo("#typed", { opacity: 1 }, { opacity: 0.4, duration: 0.1, ease: "power1.out", immediateRender: false }, T_ENTER);
+      tl.fromTo("#punch", { scale: 1 }, { scale: 1.035, duration: 0.07, ease: "power3.out", immediateRender: false }, T_ENTER);
+      later("#punch", { scale: 1.035 }, { scale: 1, duration: 0.42, ease: "expo.out" }, T_ENTER + 0.07);
+      later("#glow", { opacity: 0.5, scale: 1 }, { opacity: 1, scale: 1.15, duration: 0.5, ease: "power2.out" }, T_ENTER);
+
+      // ---- the answer: whole lines, one per beat, and a bar that is still running on the last frame
+      gsap.utils.toArray(".out").forEach((el, i) => {
+        const at = T_ENTER + 0.3 + i * 0.28;
+        tl.fromTo(el, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.22, ease: "power3.out" }, at);
+        tl.fromTo(el.firstElementChild, { scale: 0 }, { scale: 1, duration: 0.24, ease: "back.out(2.4)" }, at + 0.05);
+      });
+      tl.fromTo("#fill", { width: "0%" }, { width: "68%", duration: DUR - T_ENTER - 0.2, ease: "none" }, T_ENTER + 0.2);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

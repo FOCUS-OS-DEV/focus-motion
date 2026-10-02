@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: text-behind-a-person
+      What    Words rise from behind a person in real footage and settle clear above their head, as if they stood
+              in the room with them.
+      How     Three layers in this order: the plate (the shot), the words, and the cutout (the same shot with only
+              the person, the rest transparent). The cutout is painted over the words, so the person passes in front
+              of them. All three are full-frame boxes with the class .layer and one pivot, so the camera push moves
+              them together.
+      Your scene provides
+              assets/plate.mp4: the shot, muted H.264, standard colour.
+              assets/subject.webm: the same shot and the same trim with the background removed (VP9 with
+              transparency), made with node "<SKILL>/scripts/footage.mjs" matte plate.mp4 -o subject.webm
+      Change  Colours in :root, the words, where they settle (top of .line), the times, the push.
+      Traps   Plate and cutout need the same data-start, data-duration and data-media-start, or the person doubles.
+              A colour grade goes on both or neither, or the outline shows. The words pass behind the person for a
+              few frames only, and their final place is fully clear of the head: a word that stays half hidden is
+              not read.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      /* every layer covers the frame and turns around the same point, near the face */
+      .layer { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 540px 800px; }
+      video.layer { object-fit: cover; }
+      .line { position: absolute; left: 80px; right: 80px; top: 410px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 150px; font-weight: 900; color: var(--bg); }
+      .line .w { display: inline-block; margin: 0 14px; opacity: 0; }
+      .line .w:last-child { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3" data-width="1080" data-height="1920">
+      <video id="plate" class="clip layer" src="assets/plate.mp4" muted playsinline data-start="0" data-duration="3" data-media-start="0"></video>
+      <div id="words" class="layer"><div class="line" dir="rtl"><span class="w">הסיפור</span><span class="w">שלכם</span></div></div>
+      <video id="subject" class="clip layer" src="assets/subject.webm" muted playsinline data-start="0" data-duration="3" data-media-start="0"></video>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      const DUR = 3;                 // seconds, equal to data-duration on #root
+      const WORDS = [0.15, 0.6];     // when each word rises, in reading order (right to left)
+      const BEHIND = 300;            // how far below its place a word starts: inside the person, so it is hidden
+
+      const tl = gsap.timeline({ paused: true });
+      // the camera: one slow push on all three layers together
+      tl.fromTo(".layer", { scale: 1 }, { scale: 1.06, duration: DUR, ease: "none" }, 0);
+      // each word comes up from behind the head, fast, and settles above it with a small overshoot
+      gsap.utils.toArray(".line .w").forEach((w, i) => {
+        tl.fromTo(w, { y: BEHIND, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, ease: "back.out(1.4)" }, WORDS[i]);
+      });
+      // the line keeps breathing to the last frame
+      tl.fromTo(".line", { scale: 1 }, { scale: 1.03, duration: DUR - WORDS[1] - 0.3, ease: "none", immediateRender: false }, WORDS[1] + 0.3);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: clone-to-grid
+      What    One card multiplies: copies slide out from behind it into a row, the row multiplies up and down into
+              a grid, and the camera pulls back until the frame is a wall of the same thing.
+      How     All the copies exist from the start, stacked exactly on the original. draw(t) uses two numbers: kx
+              spreads the columns and ky spreads the rows, each from 0 to 1. The whole grid sits in one box whose
+              scale shrinks as the copies spread, so the original seems to step back while it multiplies.
+      Change  Colours in :root. CARD (the markup of the thing that multiplies), COLS and ROWS, the pitch, the three
+              scales, the times, and the stamp.
+      Traps   The copies are added farthest first, so the nearest ones come out on top. Hidden copies are set to
+              visibility hidden, not left under the original, or their shadows pile up into a dark blot. Text over
+              the grid needs a solid plate: the grid is busy.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #grid { position: absolute; left: 540px; top: 900px; width: 0; height: 0; }
+      .card { position: absolute; left: -350px; top: -380px; width: 700px; height: 760px; border-radius: 44px; background: var(--ink);
+              box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35); }
+      .card i { position: absolute; display: block; border-radius: 16px; background: color-mix(in srgb, var(--bg) 16%, transparent); }
+      .card .av { right: 40px; top: 40px; width: 96px; height: 96px; border-radius: 50%; background: var(--accent); }
+      .card .n1 { right: 160px; top: 52px; width: 260px; height: 28px; }
+      .card .n2 { right: 160px; top: 96px; width: 170px; height: 22px; }
+      .card .pic { left: 40px; right: 40px; top: 176px; height: 400px; border-radius: 28px; background: color-mix(in srgb, var(--bg) 88%, var(--ink)); overflow: hidden; }
+      .card .pic::before { content: ""; position: absolute; left: 60px; top: 60px; width: 110px; height: 110px; border-radius: 50%; background: var(--accent-2); }
+      .card .pic::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 190px; background: var(--accent); clip-path: polygon(0 100%, 30% 22%, 52% 64%, 70% 34%, 100% 100%); }
+      .card .t1 { right: 40px; top: 620px; width: 520px; height: 30px; }
+      .card .t2 { right: 40px; top: 672px; width: 340px; height: 30px; }
+      #stamp { position: absolute; left: 190px; top: 700px; width: 700px; height: 400px; border-radius: 56px; opacity: 0;
+               background: var(--bg); box-shadow: inset 0 0 0 8px var(--accent), 0 30px 80px rgba(0, 0, 0, 0.6); }
+      #stamp div { position: absolute; left: 0; right: 0; text-align: center; white-space: nowrap; line-height: 1; font-size: 136px; font-weight: 900; color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1080" data-height="1920">
+      <div id="grid"></div>
+      <div id="stamp"><div dir="rtl" style="top: 56px">אותו דבר</div><div dir="rtl" style="top: 212px">שוב ושוב</div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.6;
+      const CARD = '<i class="av"></i><i class="n1"></i><i class="n2"></i><i class="pic"></i><i class="t1"></i><i class="t2"></i>';
+      const COLS = 4, ROWS = 5;                 // copies to each side of the original
+      const GX = 760, GY = 830;                 // pitch of the grid, in card px
+      const S_ONE = 1, S_GRID = 0.42, S_WIDE = 0.24;   // the scale of the whole grid: one card, the first grid, the wall
+      const T_ROW = 0.5;      // copies slide out sideways
+      const T_COL = 0.95;     // the row multiplies up and down
+      const T_WIDE = 1.5;     // the camera pulls back
+      const T_STAMP = 2.1;    // the words land on a solid plate
+
+      const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+      const seg = (t, a, b) => clamp((t - a) / (b - a));
+      const expoOut = (k) => (k >= 1 ? 1 : 1 - Math.pow(2, -10 * k));
+      const mix = (a, b, k) => a + (b - a) * k;
+
+      const grid = document.getElementById("grid"), cells = [];
+      for (let r = -ROWS; r <= ROWS; r++) for (let c = -COLS; c <= COLS; c++) cells.push({ r, c });
+      cells.sort((a, b) => (Math.abs(b.r) * 10 + Math.abs(b.c)) - (Math.abs(a.r) * 10 + Math.abs(a.c)));   // farthest first, the original last
+      for (const o of cells) {
+        o.el = document.createElement("div");
+        o.el.className = "card";
+        o.el.innerHTML = CARD;
+        grid.appendChild(o.el);
+      }
+
+      function draw(t) {
+        // frame 0: the one card is settling from slightly larger; then the grid shrinks in two steps and keeps drifting back
+        let s = S_ONE * (1 + 0.07 * (1 - expoOut(seg(t, 0, 0.4))));
+        s = mix(s, S_GRID, expoOut(seg(t, T_ROW, T_ROW + 0.34)));
+        s = mix(s, S_WIDE, expoOut(seg(t, T_WIDE, T_WIDE + 0.6))) * (1 - 0.05 * seg(t, T_WIDE, DUR));
+        grid.style.transform = `scale(${s.toFixed(4)})`;
+        const kx = expoOut(seg(t, T_ROW, T_ROW + 0.28)), ky = expoOut(seg(t, T_COL, T_COL + 0.28));
+        for (const o of cells) {
+          const shown = (o.c === 0 || kx > 0) && (o.r === 0 || ky > 0);
+          o.el.style.visibility = shown ? "visible" : "hidden";
+          if (shown) o.el.style.transform = `translate(${(o.c * GX * kx).toFixed(1)}px, ${(o.r * GY * ky).toFixed(1)}px)`;
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#stamp", { opacity: 0, scale: 1.25, rotation: -9 }, { opacity: 1, scale: 1, rotation: -4, duration: 0.24, ease: "back.out(2.2)", immediateRender: false }, T_STAMP);
+      tl.fromTo("#stamp", { scale: 1 }, { scale: 1.04, duration: DUR - T_STAMP - 0.24, ease: "none", immediateRender: false }, T_STAMP + 0.24);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

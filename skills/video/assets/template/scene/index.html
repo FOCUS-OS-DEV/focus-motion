@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Scene s00
+      What happens, second by second, goes here. Times are local: 0 is the first frame of this scene.
+
+      The rules of a scene (the render and the gate depend on them):
+      1. One paused GSAP timeline, registered at window.__timelines["main"]. The renderer seeks it frame by frame,
+         so everything that moves is a tween on that timeline.
+      2. Nothing runs on real time: no Math.random() (use rnd()), no setTimeout, setInterval or
+         requestAnimationFrame, no repeat: -1, no CSS transition or animation.
+      3. The scene is data-duration seconds long and looks finished on every frame, the first and the last included.
+         Scenes are cut together hard, so there is no fade from black and no fade to black.
+      4. Every file is local, under assets/. No http addresses.
+      5. dir="rtl" goes on the text elements, never on <html>: there it renders an empty video.
+      6. A <video> has an id (without one it renders frozen), class="clip", muted, playsinline, data-start,
+         data-duration and data-media-start. It may sit inside moving or 3D containers. No <audio>: sound is added
+         in the mix, from cues.json.
+      7. Text stays inside the safe zone (.safe, or the --safe-* numbers). Backgrounds may fill the whole frame.
+      8. The first fromTo of an element keeps the default immediateRender: its from-values paint at time 0, so an
+         entrance stays hidden until its moment. A later fromTo on the same element takes immediateRender: false,
+         or goes on a wrapper; otherwise its from-values also paint at time 0 and show too early.
+      9. SVG: grow shapes through attributes (attr: { r }) and draw lines with attr: { "stroke-dashoffset": ... },
+         never with scale or the CSS strokeDashoffset. No will-change on text that scales: it blurs.
+     10. Several shots in one scene: switch them on the timeline (opacity or visibility at the cut time), not with
+         class="clip" on containers. Measure text inside document.fonts.ready.then(...), before building the timeline.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        /* The safe zone: how far text stays from each edge. --safe-right-low is the right margin in the lower half. */
+        --safe-top: 250px;
+        --safe-bottom: 350px;
+        --safe-left: 80px;
+        --safe-right: 80px;
+        --safe-right-low: 140px;
+        --stage-bg: #101216;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #stage { position: absolute; inset: 0; }
+      .safe { position: absolute; top: var(--safe-top); bottom: var(--safe-bottom); left: var(--safe-left); right: var(--safe-right); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4" data-width="1080" data-height="1920">
+      <div id="stage">
+        <div class="safe" id="safe"></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same numbers on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(1);
+
+      const DUR = 4; // seconds, equal to data-duration on #root
+
+      const tl = gsap.timeline({ paused: true });
+      // Build the scene here: tl.fromTo("#id", { ... }, { ..., duration: 0.4, ease: "power3.out" }, 0.5);
+      // Measure text only after the fonts arrive: document.fonts.ready.then(layout);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

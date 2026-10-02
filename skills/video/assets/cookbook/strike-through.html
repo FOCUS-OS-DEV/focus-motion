@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: strike-through
+      What    A line is drawn across a word on a beat, the frame shakes for two frames, the word dims, and the word
+              that replaces it lands underneath.
+      How     The line is a bar inside the word's own box, a little wider than the word. It grows with scaleX from
+              its right end, so it crosses the word in reading direction. The shake is three written poses, one per
+              frame, on a wrapper of its own.
+      Change  Colours in :root (--alert is the line). The three rows, STRIKE_Y (where the line crosses the letters),
+              T_WORD, T_STRIKE, T_NEW.
+      Traps   The line is a shape, so it may grow; the word itself never wipes in. STRIKE_Y 0.5em is the middle of
+              Rubik's letters with line-height 1: check another font in a frame. Shake a wrapper, never the camera
+              element, or the two tweens fight over one transform. Draw the line in three frames or less: slower
+              reads as a loading bar.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --alert: #ff4b4b; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam, #kick, #shake { position: absolute; inset: 0; transform-origin: 540px 860px; }
+      #glow { position: absolute; left: 540px; top: 1100px; width: 1300px; height: 1000px; margin: -500px 0 0 -650px; border-radius: 50%; opacity: 0;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent-2) 30%, transparent) 0%, transparent 64%); }
+      .row { position: absolute; left: 80px; right: 80px; text-align: center; white-space: nowrap; line-height: 1; color: var(--ink); }
+      .w { display: inline-block; opacity: 0; }
+      #r1 { top: 480px; font-size: 130px; font-weight: 700; }
+      #r2 { top: 650px; font-size: 310px; font-weight: 900; }
+      #r3 { top: 990px; font-size: 330px; font-weight: 900; color: var(--accent-2); }
+      /* The word and its line share one box, so the line follows the word wherever it goes. */
+      .struck { position: relative; display: inline-block; }
+      #line { position: absolute; left: -26px; right: -26px; top: 0.5em; height: 0.08em; margin-top: -0.04em; border-radius: 1em;
+              background: var(--alert); box-shadow: 0 0 28px color-mix(in srgb, var(--alert) 60%, transparent);
+              transform-origin: 100% 50%; transform: scaleX(0); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="kick">
+          <div id="glow"></div>
+          <div id="shake">
+            <div class="row" id="r1" dir="rtl"><span class="w" id="w1">זה לוקח</span></div>
+            <div class="row" id="r2" dir="rtl"><span class="struck"><span class="w" id="w2">שעות</span><i id="line"></i></span></div>
+            <div class="row" id="r3" dir="rtl"><span class="w" id="w3">דקות</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.2, FPS = 30;
+      const T_WORD = 0.45;      // the word that will be struck comes in
+      const T_STRIKE = 1.2;     // the beat: the line crosses it
+      const T_NEW = 1.75;       // the replacement lands
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      // The time of a whole frame, a hair early: what is written there shows on exactly that frame.
+      const frame = (t, i = 0) => (Math.round(t * FPS) + i) / FPS - 0.002;
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#w1", { opacity: 0.7, y: 18 }, { opacity: 1, y: 0, duration: 0.2, ease: "power2.out" }, 0);
+      tl.fromTo("#w2", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.26, ease: "back.out(1.7)" }, T_WORD);
+
+      // The strike: drawn right to left in three frames, a little tilted, like a marker.
+      tl.fromTo("#line", { scaleX: 0, rotation: -2 }, { scaleX: 1, rotation: -2, duration: 0.09, ease: "power2.out" }, T_STRIKE);
+      // The reaction: two frames of shake, then the word gives up its place.
+      [[16, -11, 0.5], [-11, 8, -0.35], [0, 0, 0]].forEach(([x, y, rotation], i) => tl.set("#shake", { x, y, rotation }, frame(T_STRIKE, i)));
+      later("#w2", { opacity: 1 }, { opacity: 0.45, duration: 0.14, ease: "power1.out" }, T_STRIKE + 0.1);
+      later("#r1, #r2", { y: 0, scale: 1 }, { y: -40, scale: 0.94, duration: 0.3, ease: "power3.out" }, T_NEW - 0.12);
+
+      // The replacement lands (one frame early, so it is there on the frame of the kick) and the frame takes the hit.
+      tl.fromTo("#w3", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.24, ease: "back.out(2)" }, T_NEW - 1 / FPS);
+      later("#kick", { scale: 1.035 }, { scale: 1, duration: 0.45, ease: "expo.out" }, T_NEW);
+      tl.fromTo("#glow", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1.1, duration: DUR - T_NEW, ease: "power2.out" }, T_NEW);
+      later("#r3", { scale: 1 }, { scale: 1.04, duration: DUR - T_NEW - 0.3, ease: "sine.inOut" }, T_NEW + 0.3);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

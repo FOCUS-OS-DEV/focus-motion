@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: clip-in-a-card
+      What    A short muted clip plays inside a rounded card with a play badge. When the clip ends, a still of its
+              last frame takes over without a visible change and keeps a slow push, so the card never freezes.
+      How     The card is three boxes of exactly the same size and place: #frame (the white border, the shadow and
+              the still inside it), the <video>, and #badge. They share the class .rig, so one tween moves all three
+              and they stay locked. The engine shows the video from data-start for data-duration seconds and plays it
+              by itself; after that the still underneath is what you see.
+      Your scene provides
+              assets/clip.mp4: short (2 to 3 s), small (about 300 px wide), muted H.264, standard colour.
+              assets/clip-end.jpg: its last frame, made with
+              ffmpeg -sseof -0.1 -i clip.mp4 -frames:v 1 -update 1 -q:v 3 clip-end.jpg
+      Change  Colours in :root. The card box (.rig), CLIP_END (equal to the clip's data-duration), the label.
+      Traps   Never tween the video's time, opacity or source: the engine owns its playback. data-duration must not
+              be longer than the clip. Keep at most about four clips in a scene: each one slows the render. The
+              badge sits low in the card, on the floor of the shot, not on the action.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #glow { position: absolute; left: 540px; top: 830px; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 62%); }
+      /* the three layers of the card: same box, same corner, same pivot */
+      .rig { position: absolute; left: 240px; top: 420px; width: 600px; height: 824px; border-radius: 36px; transform-origin: 50% 50%; }
+      #frame { overflow: hidden; background: var(--bg); box-shadow: 0 0 0 16px var(--ink), 0 50px 100px rgba(0, 0, 0, 0.55); }
+      #still { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; }
+      #clip { object-fit: cover; }
+      #badge { display: flex; align-items: flex-end; justify-content: center; padding-bottom: 80px; }
+      #badge i { position: relative; display: block; width: 124px; height: 124px; border-radius: 50%;
+                 background: color-mix(in srgb, var(--bg) 55%, transparent); box-shadow: inset 0 0 0 6px var(--ink); }
+      #badge i::after { content: ""; position: absolute; left: 47px; top: 33px; border-style: solid; border-width: 29px 0 29px 46px;
+                        border-color: transparent transparent transparent var(--ink); }
+      #label { position: absolute; left: 140px; right: 140px; top: 1330px; text-align: center; white-space: nowrap; line-height: 1;
+               font-size: 120px; font-weight: 900; color: var(--ink); opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1080" data-height="1920">
+      <div id="glow"></div>
+      <div id="frame" class="rig"><img id="still" src="assets/clip-end.jpg" alt="" /></div>
+      <video id="clip" class="clip rig" src="assets/clip.mp4" muted playsinline data-start="0" data-duration="2.4" data-media-start="0"></video>
+      <div id="badge" class="rig"><i></i></div>
+      <div id="label" dir="rtl">הסרטון שלכם</div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      const DUR = 3.6;          // seconds, equal to data-duration on #root
+      const CLIP_END = 2.4;     // data-start + data-duration of the video: from here the still is on screen
+      const T_BADGE = 0.2, T_LABEL = 0.35;
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // the card is landing on frame 0, then floats to the last frame (all three layers move as one)
+      tl.fromTo(".rig", { y: 150, rotation: 7, scale: 0.9 }, { y: 0, rotation: -2, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 0);
+      later(".rig", { y: 0, rotation: -2 }, { y: -18, rotation: 1, duration: DUR - 0.6, ease: "sine.inOut" }, 0.6);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.7 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      // the badge pops inside its own layer, so it never fights the card's transform
+      tl.fromTo("#badge i", { scale: 0.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: "back.out(2.4)" }, T_BADGE);
+      tl.fromTo("#label", { y: 60, opacity: 0 }, { y: 0, opacity: 1, duration: 0.26, ease: "back.out(1.7)" }, T_LABEL);
+      // the hand-over: the still is the clip's last frame, so the cut is invisible; then it keeps a slow push
+      later("#still", { scale: 1 }, { scale: 1.07, duration: DUR - CLIP_END, ease: "none" }, CLIP_END);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

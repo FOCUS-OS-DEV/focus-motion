@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: checklist-ticks
+      What    A plan writes itself line by line, then each line is ticked in turn, and an approve button pops up and
+              is pressed: it gives, a ripple spreads, and its own check fills in.
+      How     Each line is a right to left row: the check circle first, then the text. A tick is two tweens: the
+              round fill grows from its centre, then the check mark draws (an SVG path with pathLength 1, so the
+              draw is its dash offset attribute going from 1 to 0). The button is the same check, inside a pill.
+      Change  Colours in :root. LINES, T_LINES, T_TICKS (one per line), T_BUTTON, T_PRESS, the button label.
+      Traps   The check circle is on the right, where a Hebrew line starts. A check mark with round caps shows a dot
+              before it starts drawing, so it is hidden until it draws. Lines appear whole, one per beat. Ticks come
+              faster than the lines did: the list was read once, now it is confirmed.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 960px; }
+      #glow { position: absolute; left: 540px; top: 960px; width: 1500px; height: 1400px; margin: -700px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 62%); }
+      #card { position: absolute; left: 90px; top: 470px; width: 900px; height: 960px; border-radius: 56px; background: var(--ink); color: var(--bg);
+              box-shadow: 0 60px 120px rgba(0, 0, 0, 0.55); }
+      #card h2 { position: absolute; right: 70px; top: 64px; font-size: 72px; font-weight: 800; line-height: 1.1; white-space: nowrap; }
+      .line { position: absolute; left: 70px; right: 70px; height: 84px; display: flex; align-items: center; gap: 30px; opacity: 0;
+              font-size: 54px; font-weight: 600; line-height: 1; white-space: nowrap; }
+      .ck { position: relative; flex: none; width: 64px; height: 64px; border-radius: 50%; border: 5px solid color-mix(in srgb, var(--bg) 25%, transparent); }
+      .fill { position: absolute; inset: -5px; border-radius: 50%; background: var(--accent); transform: scale(0); }
+      .ck svg { position: absolute; left: 9px; top: 10px; width: 36px; height: 34px; overflow: visible; }
+      .mark { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+      #btn { position: absolute; left: 70px; right: 70px; top: 740px; height: 150px; opacity: 0; }
+      #press { position: absolute; inset: 0; border-radius: 75px; background: var(--bg); color: var(--ink); overflow: hidden;
+               display: flex; align-items: center; justify-content: center; gap: 30px; font-size: 60px; font-weight: 700; line-height: 1; white-space: nowrap; }
+      #press .ck { border-color: color-mix(in srgb, var(--ink) 55%, transparent); }
+      #press .fill { background: var(--accent-2); }
+      #press .mark { stroke: var(--bg); }
+      #rip { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(255, 255, 255, 0.4); opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.5" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="card" dir="rtl">
+          <h2>התוכנית</h2>
+          <div id="lines"></div>
+          <div id="btn"><div id="press"><div id="rip"></div><div class="ck"><i class="fill"></i><svg viewBox="0 0 26 24"><path class="mark" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1" d="M3 13l7 7L23 4" /></svg></div>מאשרים</div></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.5;
+      const LINES = ["פתיחה חזקה", "שלושה רגעי שיא", "מעבר בין החלקים", "סיום ברור"];
+      const T_LINES = 0.25, LINE_GAP = 0.16;                // the lines write in
+      const T_TICKS = [1.05, 1.25, 1.45, 1.65];              // one tick per line
+      const T_BUTTON = 2.0, T_PRESS = 2.5;
+
+      const CHECK = '<div class="ck"><i class="fill"></i><svg viewBox="0 0 26 24"><path class="mark" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1" d="M3 13l7 7L23 4" /></svg></div>';
+      document.getElementById("lines").innerHTML = LINES.map((s, i) => '<div class="line" style="top:' + (200 + i * 124) + 'px">' + CHECK + "<span>" + s + "</span></div>").join("");
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      // a tick: the fill grows from the centre, then the mark draws (and only then is it visible)
+      const tick = (ck, at) => {
+        tl.fromTo(ck.querySelector(".fill"), { scale: 0 }, { scale: 1, duration: 0.18, ease: "back.out(2.5)" }, at);
+        // the dash offset is an attribute: written as CSS on a pathLength element it does not draw
+        tl.fromTo(ck.querySelector(".mark"), { attr: { "stroke-dashoffset": 1 }, opacity: 0 }, { attr: { "stroke-dashoffset": 0 }, opacity: 1, duration: 0.2, ease: "power2.out" }, at + 0.04);
+      };
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      tl.fromTo("#card", { y: 60 }, { y: 0, duration: 0.7, ease: "expo.out" }, 0);           // frame 0 is already moving
+
+      gsap.utils.toArray(".line").forEach((line, i) => {
+        tl.fromTo(line, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.22, ease: "power3.out" }, T_LINES + i * LINE_GAP);
+        tick(line.querySelector(".ck"), T_TICKS[i]);
+        later(line, { scale: 1 }, { scale: 1.03, duration: 0.09, ease: "power2.out", yoyo: true, repeat: 1 }, T_TICKS[i]);
+      });
+
+      // the button pops up, is pressed (it gives, a ripple spreads) and its own check fills in
+      tl.fromTo("#btn", { opacity: 0, scale: 0.82 }, { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(2)" }, T_BUTTON);
+      tl.fromTo("#press", { scale: 1, y: 0 }, { scale: 0.95, y: 5, duration: 0.06, ease: "power2.in" }, T_PRESS);
+      later("#press", { scale: 0.95, y: 5 }, { scale: 1, y: 0, duration: 0.26, ease: "back.out(2.5)" }, T_PRESS + 0.06);
+      tl.fromTo("#rip", { scale: 0, opacity: 0.7 }, { scale: 8, opacity: 0, duration: 0.5, ease: "power2.out", immediateRender: false }, T_PRESS + 0.02);
+      tick(document.querySelector("#press .ck"), T_PRESS + 0.08);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

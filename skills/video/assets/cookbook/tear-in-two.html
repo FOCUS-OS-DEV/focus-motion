@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: tear-in-two
+      What    A paper card is torn from top to bottom along a ragged line. The two halves open like a V, fall away,
+              and small scraps flutter down after them.
+      How     One seeded zigzag line is used twice: the left half is a copy of the card clipped to the left of the
+              line, the right half a copy clipped to its right. Under each copy sits a slightly wider clip in a
+              darker paper tone, which shows as the torn fibre. Both halves turn around the bottom of the tear.
+      Change  Colours in :root (--paper, --fibre). FACE, STEPS (how ragged), T_TEAR, the fall, BITS, and the words.
+      Traps   An intact copy covers the seam until the tear starts. The halves need filter: drop-shadow, because a
+              box-shadow ignores the clip. The fall is "power1.in" (distance grows with time squared), so it reads
+              as weight. Scraps are few and gone within a second.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --paper: #f5f2ea; --fibre: #cfc8b8;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #shake, #cam { position: absolute; inset: 0; }
+      #cam { transform-origin: 540px 900px; }
+      #glow { position: absolute; left: 540px; top: 900px; width: 1300px; height: 1300px; margin: -650px 0 0 -650px; border-radius: 50%; opacity: 0;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 62%); }
+      #card { position: absolute; left: 140px; top: 640px; width: 800px; height: 540px; }
+      .half { position: absolute; inset: 0; filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.5)); }
+      .paper, .fibre { position: absolute; inset: 0; border-radius: 36px; }
+      .paper { background: var(--paper); }
+      .fibre { background: var(--fibre); }
+      .paper .title { position: absolute; left: 0; right: 0; top: 84px; text-align: center; white-space: nowrap; line-height: 1;
+                      font-size: 116px; font-weight: 800; color: var(--bg); }
+      .paper .bar { position: absolute; right: 90px; height: 28px; border-radius: 14px; background: color-mix(in srgb, var(--bg) 15%, transparent); }
+      .bit { position: absolute; background: var(--paper); opacity: 0; }
+      .line { position: absolute; left: 80px; right: 80px; text-align: center; white-space: nowrap; line-height: 1; font-size: 220px; font-weight: 900; color: var(--ink); }
+      .line .w { display: inline-block; opacity: 0; }
+      #l2 { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="shake">
+          <div id="card"><div class="half" id="left"></div><div class="half" id="right"></div><div class="half" id="whole"></div><div id="bits"></div></div>
+        </div>
+        <div class="line" id="l1" dir="rtl" style="top: 690px"><span class="w">מתחילים</span></div>
+        <div class="line" id="l2" dir="rtl" style="top: 920px"><span class="w">מחדש</span></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same tear on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(8);
+
+      // ---- restyle here
+      const DUR = 3.2, W = 800, H = 540, STEPS = 22, BITS = 8;
+      const T_TEAR = 0.5;     // the paper gives way
+      const T_WORD = 1.25;    // the halves are out of the frame
+      const FACE = '<div class="paper" dir="rtl"><div class="title">טיוטה ראשונה</div><div class="bar" style="top: 270px; width: 520px"></div>' +
+                   '<div class="bar" style="top: 334px; width: 400px"></div><div class="bar" style="top: 398px; width: 260px"></div></div>';
+
+      // The tear line in percent of the card, top to bottom: it leans from 52% to 47% and zigzags in between.
+      const tearX = (f) => 52 - 5 * f;
+      const line = [];
+      for (let i = 0; i <= STEPS; i++) line.push([tearX(i / STEPS) + (i > 0 && i < STEPS ? 5 * (rnd() - 0.5) : 0), 100 * i / STEPS]);
+      const P = (p) => p[0].toFixed(2) + "% " + p[1].toFixed(2) + "%";
+      const clip = (pts, side) => side < 0 ? "polygon(0% 0%, " + pts.map(P).join(", ") + ", 0% 100%)" : "polygon(" + pts.map(P).join(", ") + ", 100% 100%, 100% 0%)";
+      const rim = (dir) => line.map(([x, y]) => [x + dir * (0.3 + 0.8 * rnd()), y]);   // 2 to 9 px past the tear
+      for (const [id, side] of [["left", -1], ["right", 1]]) {
+        const el = document.getElementById(id);
+        el.innerHTML = '<div class="fibre"></div>' + FACE;
+        el.querySelector(".paper").style.clipPath = clip(line, side);
+        el.querySelector(".fibre").style.clipPath = clip(rim(-side), side);
+        el.style.transformOrigin = line[STEPS][0].toFixed(2) + "% 100%";               // both turn around the bottom of the tear
+      }
+      document.getElementById("whole").innerHTML = FACE;
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#card", { rotation: -2.2, y: 0 }, { rotation: -1.2, y: -10, duration: T_TEAR + 0.7, ease: "none" }, 0);
+      // the paper resists for three frames, then gives
+      [[-9, 4], [8, -3], [-5, 2], [0, 0]].forEach(([x, y], i) => tl.set("#shake", { x, y }, T_TEAR - 0.1 + i * 0.034));
+      tl.set("#whole", { autoAlpha: 0 }, T_TEAR);
+      [["#left", -1], ["#right", 1]].forEach(([sel, s], i) => {
+        const t0 = T_TEAR + i * 0.02;
+        later(sel, { rotation: 0, x: 0 }, { rotation: s * 7.5, x: s * 18, duration: 0.15, ease: "power2.out" }, t0);              // opens into a V
+        later(sel, { y: 0 }, { y: 1750, duration: 0.6, ease: "power1.in" }, t0 + 0.05);                                           // falls
+        later(sel, { rotation: s * 7.5, x: s * 18 }, { rotation: s * 46, x: s * 320, duration: 0.5, ease: "power1.in" }, t0 + 0.15);
+      });
+
+      // scraps along the tear: a short pop, a slow fall, a flip edge on
+      const SHAPES = ["polygon(0 0, 100% 20%, 70% 100%)", "polygon(10% 0, 100% 35%, 80% 100%, 0 70%)", "polygon(0 30%, 60% 0, 100% 80%, 30% 100%)"];
+      const bits = document.getElementById("bits");
+      for (let i = 0; i < BITS; i++) {
+        const f = (i + 0.5) / BITS, el = document.createElement("div"), s = 22 + 30 * rnd(), side = i % 2 ? 1 : -1;
+        el.className = "bit";
+        Object.assign(el.style, { left: (W * tearX(f) / 100 - s / 2).toFixed(0) + "px", top: (H * f - s / 2).toFixed(0) + "px", width: s.toFixed(0) + "px",
+                                  height: (s * (0.6 + 0.6 * rnd())).toFixed(0) + "px", clipPath: SHAPES[i % 3] });
+        bits.appendChild(el);
+        const t0 = T_TEAR + 0.02 * i, pop = -(90 + 240 * rnd()), fall = 0.75 + 0.35 * rnd();
+        later(el, { opacity: 0 }, { opacity: 1, duration: 0.03, ease: "none" }, t0);
+        later(el, { y: 0 }, { y: pop, duration: 0.26, ease: "power2.out" }, t0);
+        later(el, { y: pop }, { y: 1500, duration: fall, ease: "sine.in" }, t0 + 0.26);
+        later(el, { x: 0, rotation: 0 }, { x: side * (160 + 260 * rnd()), rotation: side * (220 + 380 * rnd()), duration: 0.26 + fall, ease: "power1.out" }, t0);
+        later(el, { scaleY: 1 }, { scaleY: -0.4, duration: 0.16, ease: "sine.inOut", yoyo: true, repeat: 5 }, t0 + 0.05);
+      }
+
+      // what comes instead: a soft light opens where the card was, and the words rise
+      later("#glow", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1.1, duration: DUR - T_TEAR - 0.3, ease: "sine.out" }, T_TEAR + 0.3);
+      later("#l1 .w", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.26, ease: "back.out(1.7)" }, T_WORD);
+      later("#l2 .w", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.26, ease: "back.out(2.2)" }, T_WORD + 0.3);
+      later(".line", { scale: 1 }, { scale: 1.035, duration: DUR - T_WORD - 0.6, ease: "none" }, T_WORD + 0.6);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

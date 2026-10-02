@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: camera-wrapper
+      What    The camera of a scene: one slow push that never stops, a far layer that moves less (depth), and a
+              short kick when something lands.
+      How     Three wrappers, one job each. #far holds the background and scales a little. #cam holds everything
+              else and scales more, at a constant speed, for the whole scene. #kick sits inside #cam: on the hit it
+              jumps to 1.04 and eases back. The content is laid out as if there were no camera at all.
+      Change  Colours in :root. PUSH and FAR_PUSH (how far each layer scales), KICK, T_HIT, the origin of #cam (put
+              it on the subject), and the content inside #kick.
+      Traps   Text stays sharp at any scale as long as nothing forces the browser to keep a picture of it: never
+              put will-change: transform on a wrapper that scales. In our test the same line scaled 9 times was
+              crisp without it and blurred with it. Photos and clips do get soft above their own pixel size, so
+              give them the size they reach at the end of the push. Grain or texture goes outside #cam, or it
+              scales and crawls. Keep the push small (2 to 8 percent) and linear; one element, one tween per job.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      /* The origin is the subject: the push grows around the hero word, so the word stays where it is. */
+      #far, #cam, #kick { position: absolute; inset: 0; transform-origin: 540px 940px; }
+      /* The far layer is larger than the frame, so its drift never shows an edge. */
+      #dots { position: absolute; inset: -120px;
+              background-image: radial-gradient(circle, color-mix(in srgb, var(--ink) 16%, transparent) 0 4px, transparent 5px);
+              background-size: 72px 72px; }
+      #light { position: absolute; left: 540px; top: 940px; width: 1500px; height: 1300px; margin: -650px 0 0 -750px; border-radius: 50%;
+               background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 62%); }
+      .row { position: absolute; left: 80px; right: 80px; text-align: center; white-space: nowrap; line-height: 1; color: var(--ink); }
+      .w { display: inline-block; opacity: 0; }
+      #r1 { top: 520px; font-size: 200px; font-weight: 800; }
+      #r2 { top: 730px; font-size: 420px; font-weight: 900; color: var(--accent-2); }
+      #r3 { top: 1190px; font-size: 130px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.4" data-width="1080" data-height="1920">
+      <div id="far"><div id="dots"></div></div>
+      <div id="cam">
+        <div id="light"></div>
+        <div id="kick">
+          <div class="row" id="r1" dir="rtl"><span class="w">המצלמה</span></div>
+          <div class="row" id="r2" dir="rtl"><span class="w">זזה</span></div>
+          <div class="row" id="r3" dir="rtl"><span class="w">כל הזמן</span></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.4;
+      const PUSH = 1.07;        // #cam ends this much larger
+      const FAR_PUSH = 1.02;    // the far layer moves less than the subject: that difference is the depth
+      const KICK = 1.04;        // the jump of the frame on the hit
+      const T_HIT = 1.2;        // the hero word lands
+      const T_LAST = 1.95;
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // 1. The push: the whole scene, constant speed, first frame to last. It is the only tween on #cam.
+      tl.fromTo("#cam", { scale: 1 }, { scale: PUSH, duration: DUR, ease: "none" }, 0);
+      // 2. Depth: the far layer scales less and drifts sideways.
+      tl.fromTo("#far", { scale: 1, x: 0, y: 0 }, { scale: FAR_PUSH, x: -36, y: -20, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#light", { scale: 0.8, opacity: 0.5 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.out" }, 0);
+
+      // The content. It knows nothing about the camera.
+      tl.fromTo("#r1 .w", { opacity: 0.7, y: 20 }, { opacity: 1, y: 0, duration: 0.22, ease: "power2.out" }, 0);
+      // the hero word starts one frame early, so it is already there on the frame of the kick
+      tl.fromTo("#r2 .w", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.2, ease: "back.out(2.2)" }, T_HIT - 1 / 30);
+      tl.fromTo("#r3 .w", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.24, ease: "back.out(1.7)" }, T_LAST);
+
+      // 3. The kick: on the hit the frame is suddenly closer, then it lets go. A wrapper of its own, so it adds to the push.
+      later("#kick", { scale: KICK, y: -8 }, { scale: 1, y: 0, duration: 0.5, ease: "expo.out" }, T_HIT);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

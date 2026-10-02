@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: hard-cuts-inside-a-scene
+      What    Several full-frame shots inside one scene, switched by hard cuts on spoken words: one word, one shot.
+              Each shot has its own background and its own small motion, and the last one holds.
+      How     Every shot is a full-frame layer that is hidden by default. SHOTS lists the time each one cuts in. The
+              timeline switches a shot on at its time and off at the time of the next, both written a hair before
+              the frame, so no frame shows two shots or none. Each shot opens 12 percent larger and settles.
+      Change  Colours in :root and per shot. The words, SHOTS (the cut times), PUNCH, and what moves inside each shot.
+      Traps   Cut on the word, not between words. Leave each shot at least 0.4 s. A word must fit the frame at
+              PUNCH too, or its first frames are cut by the frame edge. Count the brightness jumps: no
+              more than three full-frame jumps in any second, so do not alternate black and white at this pace.
+              A cut needs no fade: a fade here reads as a mistake. Whatever moves inside a shot is added at the
+              shot's own start time. The engine can also hide and show an element by itself (class="clip" with
+              data-start and data-duration), but its lint then asks for a separate file once that element has
+              children, so shots that live in one file are switched from the timeline.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      .shot { position: absolute; inset: 0; overflow: hidden; visibility: hidden; }
+      .in { position: absolute; inset: 0; transform-origin: 540px 860px; }
+      .word { position: absolute; left: 80px; right: 80px; top: 725px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 270px; font-weight: 900; }
+      #s1 { background: var(--bg); color: var(--ink); }
+      #s2 { background: var(--accent); color: var(--bg); }
+      #s3 { background: var(--ink); color: var(--bg); }
+      #s4 { background: var(--bg); color: var(--accent-2); }
+      #ring { position: absolute; left: 540px; top: 860px; width: 1000px; height: 1000px; margin: -500px 0 0 -500px; border-radius: 50%;
+              border: 10px solid var(--accent); }
+      #stripes { position: absolute; left: -400px; top: -200px; width: 2000px; height: 2400px; transform: rotate(-18deg);
+                 background: repeating-linear-gradient(90deg, transparent 0 150px, color-mix(in srgb, var(--bg) 12%, transparent) 150px 300px); }
+      #bar { position: absolute; left: 215px; top: 1040px; width: 650px; height: 34px; border-radius: 17px; background: var(--accent);
+             transform-origin: 100% 50%; }
+      #glow { position: absolute; left: 540px; top: 860px; width: 1500px; height: 1300px; margin: -650px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent-2) 30%, transparent) 0%, transparent 62%); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.4" data-width="1080" data-height="1920">
+      <div class="shot" id="s1"><div class="in"><div id="ring"></div><div class="word" dir="rtl">רעיון</div></div></div>
+      <div class="shot" id="s2"><div class="in"><div id="stripes"></div><div class="word" dir="rtl">תסריט</div></div></div>
+      <div class="shot" id="s3"><div class="in"><div id="bar"></div><div class="word" dir="rtl">עריכה</div></div></div>
+      <div class="shot" id="s4"><div class="in"><div id="glow"></div><div class="word" dir="rtl">סרטון</div></div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.4, FPS = 30;
+      const SHOTS = [["#s1", 0], ["#s2", 0.6], ["#s3", 1.2], ["#s4", 1.8]];   // [shot, the second it cuts in: a spoken word]
+      const PUNCH = 1.12;       // every shot opens this much larger and settles
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      // The time of a whole frame, a hair early: what is written there shows on exactly that frame.
+      const frame = (t) => Math.max(0, Math.round(t * FPS) / FPS - 0.002);
+
+      SHOTS.forEach(([sel, at], i) => {
+        const out = i + 1 < SHOTS.length ? SHOTS[i + 1][1] : DUR;
+        tl.set(sel, { autoAlpha: 1 }, frame(at));                      // the cut in
+        if (out < DUR) tl.set(sel, { autoAlpha: 0 }, frame(out));      // the cut out, on the frame the next shot cuts in
+        tl.fromTo(sel + " .in", { scale: PUNCH }, { scale: 1, duration: Math.min(0.5, out - at), ease: "expo.out" }, at);
+      });
+
+      // What moves inside each shot, from the shot's own start. Shot 1 is already moving on frame 0.
+      const [T1, T2, T3, T4] = SHOTS.map((s) => s[1]);
+      tl.fromTo("#ring", { scale: 0.86, opacity: 1 }, { scale: 1.3, opacity: 0.35, duration: T2 - T1, ease: "power1.out" }, T1);
+      tl.fromTo("#stripes", { x: 0 }, { x: -150, duration: T3 - T2, ease: "none" }, T2);
+      tl.fromTo("#bar", { scaleX: 0 }, { scaleX: 1, duration: 0.3, ease: "power3.out" }, T3 + 0.06);
+      // the last shot holds: the light opens and the word keeps a slow push to the last frame
+      tl.fromTo("#glow", { scale: 0.7, opacity: 0.6 }, { scale: 1.15, opacity: 1, duration: DUR - T4, ease: "power2.out" }, T4);
+      later("#s4 .word", { scale: 1 }, { scale: 1.06, duration: DUR - T4 - 0.5, ease: "none" }, T4 + 0.5);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: motion-streaks
+      What    Two very fast entrances that still read as movement: a plate shoots in from the left and a word from
+              the right. Each drags soft ghosts and a streak of light, which vanish the moment it stops.
+      How     A mover is a path: pos(t) gives its place at any time. The ghosts are copies drawn where the mover was
+              a fraction of a frame earlier. The streak is as long as the distance covered during the last frame
+              and points back along the motion. Both fade with the speed, so a resting element is perfectly clean.
+      Change  Colours in :root. The movers (from, to, start, length), GHOSTS, SHUTTER (0.5 is a film camera, 1 is
+              a long smear), the streak's thickness and colour.
+      Traps   This is for one or two fast elements in a scene that must otherwise stay sharp (text, footage). When
+              the whole frame moves fast, ask the renderer for real motion blur instead. A move faster than about
+              a third of the frame per frame breaks into separate images even with ghosts: slow it down.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 900px; }
+      /* every mover, ghost and streak sits at 0,0 and is placed by its transform; margins centre it on that point */
+      .plate, .word, .streak { position: absolute; left: 0; top: 0; }
+      .plate { width: 780px; height: 320px; margin: -160px 0 0 -390px; border-radius: 160px; background: var(--accent); }
+      .word { width: 780px; height: 260px; margin: -130px 0 0 -390px; text-align: center; white-space: nowrap; line-height: 250px;
+              font-size: 240px; font-weight: 900; color: var(--ink); }
+      .ghost { filter: blur(6px); }
+      .streak { transform-origin: 0 50%; filter: blur(10px); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="2.4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div class="plate" id="plate"></div>
+        <div class="word" id="word" dir="rtl">מהיר</div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 2.4, FPS = 30;
+      const GHOSTS = 3;        // copies behind each mover
+      const SHUTTER = 0.5;     // how much of one frame the ghosts cover (0.5 looks like a film camera)
+
+      const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+      const expoOut = (k) => (k >= 1 ? 1 : 1 - Math.pow(2, -10 * k));
+
+      // A mover: the element, where it goes, when, and how the streak behind it looks.
+      // back: half its size along the motion, so the streak starts at its trailing edge. thick: the streak's height.
+      function mover(el, { from, to, start, length, back, thick, color }) {
+        const ghosts = Array.from({ length: GHOSTS }, () => {
+          const g = el.cloneNode(true);
+          g.removeAttribute("id");
+          g.classList.add("ghost");
+          el.parentNode.insertBefore(g, el);                      // under the mover
+          return g;
+        });
+        const streak = document.createElement("div");
+        streak.className = "streak";
+        Object.assign(streak.style, { height: thick + "px", marginTop: -thick / 2 + "px", borderRadius: thick / 2 + "px", background: "linear-gradient(90deg, " + color + ", transparent)" });
+        el.parentNode.insertBefore(streak, ghosts[0]);            // under the ghosts
+        const pos = (t) => { const k = expoOut(clamp((t - start) / length)); return [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k]; };
+        return { el, ghosts, streak, pos, back };
+      }
+      const movers = [
+        // the plate is already most of the way in on frame 0: its move started before the scene
+        mover(document.getElementById("plate"), { from: [-700, 900], to: [540, 900], start: -0.07, length: 0.3, back: 390, thick: 200, color: "var(--accent-2)" }),
+        mover(document.getElementById("word"), { from: [1560, 900], to: [540, 900], start: 0.55, length: 0.26, back: 300, thick: 120, color: "var(--ink)" }),
+      ];
+
+      function draw(t) {
+        for (const m of movers) {
+          const [x, y] = m.pos(t), [px, py] = m.pos(t - 1 / FPS);
+          const dx = x - px, dy = y - py, speed = Math.hypot(dx, dy);                 // px covered during the last frame
+          m.el.style.transform = "translate(" + x.toFixed(1) + "px, " + y.toFixed(1) + "px)";
+          m.ghosts.forEach((g, j) => {
+            const [gx, gy] = m.pos(t - (j + 1) * SHUTTER / GHOSTS / FPS);           // where it was a part of a frame ago
+            g.style.transform = "translate(" + gx.toFixed(1) + "px, " + gy.toFixed(1) + "px)";
+            g.style.opacity = (0.42 / (j + 1) * clamp(speed / 60)).toFixed(3);
+          });
+          m.streak.style.width = (m.back + speed).toFixed(1) + "px";
+          m.streak.style.transform = "translate(" + x.toFixed(1) + "px, " + y.toFixed(1) + "px) rotate(" + (Math.atan2(-dy, -dx) * 180 / Math.PI).toFixed(1) + "deg)";
+          m.streak.style.opacity = (0.75 * clamp(speed / 140)).toFixed(3);
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.06, duration: DUR, ease: "none" }, 0);
+      // each landing pushes the frame for a moment
+      tl.fromTo("#cam", { x: 26 }, { x: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 0.1);
+      tl.fromTo("#cam", { x: -26 }, { x: 0, duration: 0.3, ease: "expo.out", immediateRender: false }, 0.72);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

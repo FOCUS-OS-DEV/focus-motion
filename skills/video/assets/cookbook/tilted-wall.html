@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: tilted-wall
+      What    A floor of tiles that runs away from the camera into a fog. The rows slide against each other, the
+              camera pushes in slowly, and a headline sits over it on a soft dark patch.
+      How     One flat plane holds rows of tiles and is tilted with rotateX and rotateZ under a perspective. Each row
+              is one element that slides sideways at its own speed, odd rows one way and even rows the other. The
+              push is a translateZ on a wrapper. A gradient the colour of the background hides the far end.
+      Change  Colours in :root. TILE, GAP, ROWS, PER_ROW, the tilt (TILT_X, TILT_Z), PUSH, the row speeds, the tile
+              designs (.k0 .k1 .k2) and the headline. Put real content in the tiles: clips, photos, small animations.
+      Traps   A tile that comes closer than the perspective distance flips behind the camera and smears: keep the
+              nearest row in front of it (here the plane ends about 900 px below its pivot). The tiles are texture,
+              so the headline needs the dark patch behind it. Rows move the whole scene long, from frame 0.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #world { position: absolute; inset: 0; overflow: hidden; perspective: 1100px; perspective-origin: 540px 760px; }
+      #push, #plane, .row { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+      #push { left: 540px; top: 960px; transform-style: preserve-3d; }
+      .t { position: absolute; top: 0; border-radius: 26px; overflow: hidden; background: color-mix(in srgb, var(--ink) 10%, var(--bg));
+           box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ink) 12%, transparent); }
+      .t::before { content: ""; position: absolute; }
+      .t.k0::before { left: 22%; top: 26%; width: 56%; aspect-ratio: 1; border-radius: 50%; background: var(--accent-2); }
+      .t.k1::before { left: 16%; right: 16%; top: 30%; height: 44%;
+                      background: repeating-linear-gradient(90deg, var(--ink) 0 18px, transparent 18px 34px); }
+      .t.k2::before { left: 24%; top: 30%; width: 52%; aspect-ratio: 1; border-radius: 22%; background: var(--ink); transform: rotate(45deg); }
+      .t.hot { background: var(--accent); }
+      .t.hot::before { background-color: var(--bg); }
+      #fog { position: absolute; inset: 0; background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 16%, transparent 52%); }
+      #patch { position: absolute; left: -110px; top: 330px; width: 1300px; height: 640px; border-radius: 50%;
+               background: radial-gradient(ellipse closest-side, color-mix(in srgb, var(--bg) 92%, transparent) 0%, color-mix(in srgb, var(--bg) 70%, transparent) 55%, transparent 100%); }
+      #title { position: absolute; left: 80px; right: 80px; top: 560px; text-align: center; white-space: nowrap; line-height: 1;
+               font-size: 134px; font-weight: 900; color: var(--ink); }
+      #title .w { display: inline-block; margin: 0 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1080" data-height="1920">
+      <div id="world"><div id="push"><div id="plane"></div></div></div>
+      <div id="fog"></div>
+      <div id="patch"></div>
+      <div id="title" dir="rtl"><span class="w">הכותרת</span><span class="w">שלכם</span></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same wall on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(31);
+
+      // ---- restyle here
+      const DUR = 3.6;
+      const TILE = [204, 270], GAP = 30;          // tile size and the space between tiles
+      const ROWS = 13, PER_ROW = 17;              // enough to cover the frame at the far end, plus the slide
+      const NEAREST = 620;                        // where the nearest row starts, in px below the pivot of the plane
+      const TILT_X = 34, TILT_Z = -8;             // lean back, and turn
+      const PUSH = 150;                           // how far the camera moves in over the scene
+      const SPEED = [110, 170];                   // row slide, px per second
+
+      const plane = document.getElementById("plane");
+      plane.style.transform = `rotateX(${TILT_X}deg) rotateZ(${TILT_Z}deg)`;
+      const stepX = TILE[0] + GAP, stepY = TILE[1] + GAP, rows = [];
+      for (let r = 0; r < ROWS; r++) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.style.top = (NEAREST - r * stepY) + "px";
+        for (let i = 0; i < PER_ROW; i++) {
+          const t = document.createElement("div");
+          t.className = "t k" + Math.floor(rnd() * 3) + (rnd() < 0.16 ? " hot" : "");
+          Object.assign(t.style, { left: ((i - PER_ROW / 2) * stepX) + "px", width: TILE[0] + "px", height: TILE[1] + "px" });
+          row.appendChild(t);
+        }
+        plane.appendChild(row);
+        rows.push({ el: row, dir: r % 2 ? 1 : -1, speed: SPEED[0] + (SPEED[1] - SPEED[0]) * rnd(), phase: stepX * (rnd() - 0.5) });
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // every row slides for the whole scene, already moving on frame 0
+      rows.forEach((w) => tl.fromTo(w.el, { x: w.phase }, { x: w.phase + w.dir * w.speed * DUR, duration: DUR, ease: "none" }, 0));
+      // the one camera move: a slow push toward the floor
+      tl.fromTo("#push", { z: 0 }, { z: PUSH, duration: DUR, ease: "none" }, 0);
+      // the headline: the first word is already arriving on frame 0, then a slow push of its own
+      tl.fromTo("#title .w:first-child", { y: 36, opacity: 0.65 }, { y: 0, opacity: 1, duration: 0.22, ease: "back.out(1.7)" }, 0);
+      tl.fromTo("#title .w:last-child", { y: 64, opacity: 0 }, { y: 0, opacity: 1, duration: 0.24, ease: "back.out(1.7)" }, 0.22);
+      tl.fromTo("#title", { scale: 1 }, { scale: 1.04, duration: DUR, ease: "none" }, 0);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: cubes-3d
+      What    Nine real cubes tumble in orbit, pull together into a grid that locks with a rolling flip, then burst
+              apart around a word and keep drifting.
+      How     Each cube is six flat faces inside a preserve-3d box, under one perspective. draw(t) gives every cube a
+              position and three rotations from the time alone: an orbit, a blend into its grid cell, and after the
+              burst a path that air drag slows down. The spin unwinds exactly to zero as the grid forms.
+      Change  Colours in :root and FACES. SIZE, GAP, the times T_GATHER, T_GRID, T_BURST, REACH, and the word.
+      Traps   Every box between the perspective and the faces needs transform-style: preserve-3d, and none of them
+              may have overflow, filter or opacity, which flatten 3D. Shade the faces differently or the cube reads
+              as a flat square. Nine cubes are 54 layers: keep the count low.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 900px; }
+      #glow { position: absolute; left: 540px; top: 900px; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 60%); }
+      #stage { position: absolute; inset: 0; perspective: 1500px; perspective-origin: 540px 900px; }
+      #group, .cube { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-style: preserve-3d; }
+      #group { left: 540px; top: 900px; }
+      .face { position: absolute; backface-visibility: hidden; border-radius: 10px; box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.22); }
+      #word { position: absolute; left: 0; right: 0; top: 770px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 280px; font-weight: 900; color: var(--ink); opacity: 0; text-shadow: 0 12px 44px var(--bg); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="stage"><div id="group"></div></div>
+        <div id="word" dir="rtl">מוכן</div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same tumble on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(64);
+
+      // ---- restyle here
+      const DUR = 4.2, SIZE = 150, GAP = 46, COLS = 3, ROWS = 3;
+      const T_GATHER = 0.7;   // the cubes leave the orbit
+      const T_GRID = 1.6;     // the grid is locked
+      const T_BURST = 2.5;    // the grid bursts
+      const T_WORD = T_BURST + 0.14;   // the word lands once the middle has cleared
+      const REACH = 2.7;      // how far the burst throws a cube, in grid steps
+      // front, back, right, left, top, bottom: [colour, shade 0..1]
+      const FACES = [["var(--accent)", 0], ["var(--accent)", 0.35], ["var(--accent-2)", 0], ["var(--accent-2)", 0.3], ["var(--ink)", 0], ["var(--accent)", 0.55]];
+      const TURN = ["", "rotateY(180deg)", "rotateY(90deg)", "rotateY(-90deg)", "rotateX(90deg)", "rotateX(-90deg)"];
+
+      const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+      const seg = (t, a, b) => clamp((t - a) / (b - a));
+      const inOut = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(2 - 2 * k, 3) / 2);
+      const backOut = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : 1 + 2.3 * Math.pow(k - 1, 3) + 1.3 * Math.pow(k - 1, 2));
+      const mix = (a, b, k) => a + (b - a) * k;
+
+      const group = document.getElementById("group"), h = SIZE / 2, step = SIZE + GAP;
+      const cubes = [];
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        const el = document.createElement("div");
+        el.className = "cube";
+        FACES.forEach(([colour, shade], f) => {
+          const face = document.createElement("div");
+          face.className = "face";
+          Object.assign(face.style, { left: -h + "px", top: -h + "px", width: SIZE + "px", height: SIZE + "px", transform: TURN[f] + " translateZ(" + h + "px)",
+                                      background: `linear-gradient(rgba(0, 0, 0, ${shade}), rgba(0, 0, 0, ${shade})), ${colour}` });
+          el.appendChild(face);
+        });
+        group.appendChild(el);
+        const gx = (c - (COLS - 1) / 2) * step, gy = (r - (ROWS - 1) / 2) * step, centre = gx === 0 && gy === 0;
+        cubes.push({ el, gx, gy, wave: c + r,
+                     a0: 6.28 * rnd(), speed: 1.2 + 0.5 * rnd(), lift: 520 * (rnd() - 0.5),              // the orbit
+                     kx: rnd() < 0.5 ? 1 : -1, ky: rnd() < 0.5 ? 2 : -1, kz: rnd() < 0.5 ? 1 : 0,       // whole turns that unwind
+                     bx: centre ? 0.2 * step * REACH : gx * REACH + 60 * (rnd() - 0.5),                  // where the burst throws it
+                     by: centre ? -6 * step : gy * REACH + 60 * (rnd() - 0.5), bz: centre ? -300 : 500 * (rnd() - 0.4),
+                     wx: 260 * (rnd() - 0.5), wy: 300 * (rnd() - 0.5) });
+      }
+
+      function draw(t) {
+        // the whole group sways a little, so the grid shows its sides
+        group.style.transform = `rotateX(${(-14 + 5 * Math.sin(t * 0.9)).toFixed(2)}deg) rotateY(${(20 * Math.sin(t * 0.7 + 0.6)).toFixed(2)}deg)`;
+        const g = backOut(seg(t, T_GATHER, T_GRID));                      // 0 in orbit, 1 in the grid
+        const unwind = 1 - Math.pow(1 - seg(t, 0, T_GRID), 2.4);          // the spin slows into the lock
+        const tau = Math.max(0, t - T_BURST), fly = 1 - Math.exp(-3.2 * tau);            // 0 to 1, slowed by drag
+        for (const q of cubes) {
+          const a = q.a0 + q.speed * t;
+          let x = mix(Math.cos(a) * 340, q.gx, g), y = mix(q.lift + 40 * Math.sin(2 * a), q.gy, g), z = mix(Math.sin(a) * 380, 0, g);
+          const flip = inOut(seg(t, T_GRID + 0.12 * q.wave, T_GRID + 0.12 * q.wave + 0.42));           // the lock: a quarter turn rolls across
+          let rx = 360 * q.kx * (1 - unwind), ry = 360 * q.ky * (1 - unwind) - 90 * flip, rz = 360 * q.kz * (1 - unwind);
+          if (tau > 0) {
+            x = mix(q.gx, q.bx, fly); y = mix(q.gy, q.by, fly); z = q.bz * fly;
+            rx += q.wx * (fly * 1.4 + 0.12 * tau); ry += q.wy * (fly * 1.4 + 0.12 * tau);               // it keeps turning to the last frame
+          }
+          q.el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, ${z.toFixed(1)}px) rotateX(${rx.toFixed(1)}deg) rotateY(${ry.toFixed(1)}deg) rotateZ(${rz.toFixed(1)}deg)`;
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.7 }, { scale: 1.15, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      tl.fromTo("#word", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.28, ease: "back.out(2.2)", immediateRender: false }, T_WORD);
+      tl.fromTo("#word", { scale: 1 }, { scale: 1.04, duration: DUR - T_WORD - 0.28, ease: "none", immediateRender: false }, T_WORD + 0.28);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

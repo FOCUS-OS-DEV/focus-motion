@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: stamp-slam
+      What    A rubber stamp drops onto a page exactly on the beat. The page takes the hit, the frame shakes for two
+              frames, a ring of ink goes out, and the stamp holds with a slow drift.
+      How     The stamp is already on its way FALL seconds before the beat: it shrinks from 1.3 to 1 with an ease
+              that speeds up, so the last frame of the fall is the beat. It then presses in 4 percent and comes
+              back. The shake is three written poses, one per frame, on a wrapper around the page and the stamp.
+      Change  Colours in :root (--stamp). The word, its tilt, the page under it, T_HIT, FALL, the size of the shake.
+      Traps   The fall must END on the beat, not start on it. Stay at 1.3 or less: a Hebrew word that lands from
+              far larger is cut by the frame for a moment. The shake goes after the landing frame and lasts two
+              frames; a longer one reads as an earthquake. The stamp has its own fill, so the page under it never
+              makes the word hard to read.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --stamp: #ff6a3d; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam, #shake { position: absolute; inset: 0; transform-origin: 540px 900px; }
+      #page { position: absolute; left: 150px; top: 440px; width: 780px; height: 940px; border-radius: 44px; background: var(--ink);
+              box-shadow: 0 60px 120px rgba(0, 0, 0, 0.55); }
+      #page .title { position: absolute; right: 70px; top: 76px; font-size: 92px; font-weight: 800; line-height: 1; white-space: nowrap; color: var(--bg); }
+      #page .bar { position: absolute; right: 70px; height: 30px; border-radius: 15px; background: color-mix(in srgb, var(--bg) 14%, transparent); }
+      /* The stamp: a tilted frame with a second ring inside it, and its own paper-coloured fill. */
+      #stampWrap { position: absolute; left: 0; right: 0; top: 760px; height: 400px; display: flex; align-items: center; justify-content: center; opacity: 0; }
+      #stamp { transform: rotate(-8deg); padding: 10px 64px 34px; border: 14px solid var(--stamp); border-radius: 50px;
+               font-size: 236px; font-weight: 900; line-height: 1; white-space: nowrap; color: var(--stamp);
+               background: color-mix(in srgb, var(--ink) 92%, transparent);
+               box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--ink) 92%, transparent), inset 0 0 0 16px var(--stamp); }
+      #inkRing { position: absolute; left: 190px; top: 730px; width: 700px; height: 460px; border-radius: 80px; border: 8px solid var(--stamp);
+                 transform: rotate(-8deg); opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="shake">
+          <div id="page" dir="rtl">
+            <div class="title">בקשה חדשה</div>
+            <div class="bar" style="top: 220px; width: 560px"></div>
+            <div class="bar" style="top: 290px; width: 640px"></div>
+            <div class="bar" style="top: 740px; width: 600px"></div>
+            <div class="bar" style="top: 810px; width: 360px"></div>
+          </div>
+          <div id="inkRing"></div>
+          <div id="stampWrap"><div id="stamp" dir="rtl">אושר</div></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.2, FPS = 30;
+      const T_HIT = 1.2;        // the beat: the stamp touches the page
+      const FALL = 0.1;         // the stamp is in the air this long before the beat
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      // The time of a whole frame, a hair early: what is written there shows on exactly that frame.
+      const frame = (t, i = 0) => (Math.round(t * FPS) + i) / FPS - 0.002;
+
+      // before: the page settles (frame 0 is already moving) and leans toward the camera
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#page", { y: 70, rotation: -3 }, { y: 0, rotation: -1.5, duration: 0.7, ease: "expo.out" }, 0);
+
+      // the hit: the fall speeds up and ends exactly on the beat
+      later("#stampWrap", { opacity: 0 }, { opacity: 1, duration: 0.04, ease: "none" }, T_HIT - FALL);
+      tl.fromTo("#stampWrap", { scale: 1.3 }, { scale: 1, duration: FALL, ease: "power2.in" }, T_HIT - FALL);
+      later("#stampWrap", { scale: 1 }, { scale: 0.96, duration: 0.07, ease: "power2.out", yoyo: true, repeat: 1 }, T_HIT);
+
+      // the reaction: two frames of shake after the landing frame, the page dips, a ring of ink goes out
+      [[14, -10, 0.4], [-10, 7, -0.3], [0, 0, 0]].forEach(([x, y, rotation], i) => tl.set("#shake", { x, y, rotation }, frame(T_HIT, i + 1)));
+      later("#page", { scale: 1, rotation: -1.5 }, { scale: 0.975, rotation: -0.9, duration: 0.06, ease: "power2.out" }, T_HIT);
+      later("#page", { scale: 0.975, rotation: -0.9 }, { scale: 1, rotation: -1.2, duration: 0.4, ease: "back.out(2.5)" }, T_HIT + 0.06);
+      later("#inkRing", { opacity: 0.8, scale: 0.92 }, { opacity: 0, scale: 1.3, duration: 0.45, ease: "power2.out" }, T_HIT);
+
+      // after: nothing freezes. The stamp drifts a degree, the push goes on.
+      later("#stamp", { rotation: -8 }, { rotation: -6.6, duration: DUR - T_HIT - 0.2, ease: "sine.inOut" }, T_HIT + 0.2);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Example scene "hello": the self-test of the install, and the quality bar of the template. 4 s, 1080x1920, 30 fps.
+      The doctor copies it, adds assets/Rubik-VF.ttf and assets/gsap.min.js, lints it and renders it.
+
+      0.00  Already moving on frame 0: the light drifts, the camera pushes in, "שלום" is rising.
+      0.10  "עולם" follows, in reading order (right to left). Both words enter whole.
+      0.35  A short rule opens under the title from its centre.
+      1.40  The title lifts a little to make room. The badge pops in and its ring draws.
+      1.75  "הכול", "מותקן", "ועובד" rise one after the other, 60 ms apart.
+      1.95  The check mark draws inside the ring.
+      2.30  Everything is in place. The hold keeps a slow push and a breathing light, so no frame is frozen,
+            and the last frame is complete.
+
+      Plumbing worth copying: one paused timeline at window.__timelines["main"]; every element has at most one
+      fromTo per property (a second one goes on a wrapper); every entrance keeps fromTo's default immediateRender,
+      so the element is hidden from frame 0 until its moment; no randomness; text inside the safe zone.
+    -->
+    <style>
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      :root {
+        --bg: #0e1116; --ink: #f5f2ea; --accent: #3ddc97; --accent-soft: #bff3da;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #glow { position: absolute; left: 540px; top: 820px; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(circle, rgba(61, 220, 151, 0.2) 0%, rgba(61, 220, 151, 0.06) 38%, rgba(61, 220, 151, 0) 64%); }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 860px; }
+      #badge { position: absolute; left: 450px; top: 470px; width: 180px; height: 180px; transform-origin: 50% 50%; }
+      #badge svg { width: 180px; height: 180px; overflow: visible; }
+      #titleWrap { position: absolute; left: var(--safe-left); right: var(--safe-right); top: 740px; text-align: center; }
+      #title { font-size: 170px; font-weight: 900; line-height: 1; color: var(--ink); white-space: nowrap; }
+      .word { display: inline-block; margin: 0 0.12em; }
+      #rule { width: 360px; height: 6px; margin: 44px auto 0; border-radius: 3px; background: var(--accent); }
+      #sub { position: absolute; left: var(--safe-left); right: var(--safe-right); top: 1040px; text-align: center;
+             font-size: 92px; font-weight: 500; line-height: 1.1; color: var(--accent-soft); white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4" data-width="1080" data-height="1920">
+      <div id="glow"></div>
+      <div id="cam">
+        <div id="badge">
+          <svg viewBox="-90 -90 180 180">
+            <circle id="ring" cx="0" cy="0" r="74" fill="none" stroke="#3ddc97" stroke-width="8" stroke-linecap="round"
+                    stroke-dasharray="466" stroke-dashoffset="466" transform="rotate(-90)" />
+            <path id="tick" d="M -32 2 L -9 25 L 34 -22" fill="none" stroke="#f5f2ea" stroke-width="12" stroke-linecap="round"
+                  stroke-linejoin="round" stroke-dasharray="100" stroke-dashoffset="100" />
+          </svg>
+        </div>
+        <div id="titleWrap">
+          <div id="title" dir="rtl"><span class="word" id="w1">שלום</span><span class="word" id="w2">עולם</span></div>
+          <div id="rule"></div>
+        </div>
+        <div id="sub" dir="rtl"><span class="word" id="s1">הכול</span><span class="word" id="s2">מותקן</span><span class="word" id="s3">ועובד</span></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const DUR = 4;
+      const tl = gsap.timeline({ paused: true });
+
+      // the hold, running from frame 0 to the last frame
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.035, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.86, x: -20 }, { scale: 1.08, x: 24, duration: DUR, ease: "sine.inOut" }, 0);
+
+      // the title: whole words, rising, already in motion on frame 0
+      tl.fromTo("#w1", { y: 70, opacity: 0.25 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0);
+      tl.fromTo("#w2", { y: 70, opacity: 0 }, { y: 0, opacity: 1, duration: 0.55, ease: "power3.out" }, 0.1);
+      tl.fromTo("#rule", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "expo.out" }, 0.35);
+      tl.fromTo("#titleWrap", { y: 0 }, { y: -36, duration: 0.6, ease: "power2.inOut" }, 1.4);
+
+      // the badge: pops in, the ring draws, then the tick
+      tl.fromTo("#badge", { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.45, ease: "back.out(2)" }, 1.45);
+      tl.fromTo("#ring", { attr: { "stroke-dashoffset": 466 } }, { attr: { "stroke-dashoffset": 0 }, duration: 0.55, ease: "power2.inOut" }, 1.5);
+      tl.fromTo("#tick", { attr: { "stroke-dashoffset": 100 } }, { attr: { "stroke-dashoffset": 0 }, duration: 0.32, ease: "power2.out" }, 1.95);
+
+      // the line under it, word by word in reading order
+      ["#s1", "#s2", "#s3"].forEach((id, i) =>
+        tl.fromTo(id, { y: 50, opacity: 0 }, { y: 0, opacity: 1, duration: 0.45, ease: "power3.out" }, 1.75 + i * 0.06));
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

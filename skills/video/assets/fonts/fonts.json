@@ -1,0 +1,85 @@
+{
+  "about": "Six Hebrew font families under the SIL Open Font License 1.1, taken unmodified from the Google Fonts repository (github.com/google/fonts, folder ofl/<dir>). Only the file names were changed, to names with no brackets. Each folder holds the family's own OFL.txt.",
+  "default": "Rubik",
+  "fonts": [
+    {
+      "family": "Rubik",
+      "role": "default",
+      "style": "rounded geometric sans, heavy weights for headlines",
+      "dir": "rubik",
+      "files": [{ "file": "Rubik-VF.ttf", "weight": "300 900", "upstream": "Rubik[wght].ttf" }],
+      "variable": true,
+      "weights": { "min": 300, "max": 900 },
+      "latin": true,
+      "license": "OFL-1.1",
+      "licenseFile": "rubik/OFL.txt",
+      "source": "https://github.com/google/fonts/tree/main/ofl/rubik"
+    },
+    {
+      "family": "Heebo",
+      "role": "clean sans",
+      "style": "neutral grotesque, the widest weight range",
+      "dir": "heebo",
+      "files": [{ "file": "Heebo-VF.ttf", "weight": "100 900", "upstream": "Heebo[wght].ttf" }],
+      "variable": true,
+      "weights": { "min": 100, "max": 900 },
+      "latin": true,
+      "license": "OFL-1.1",
+      "licenseFile": "heebo/OFL.txt",
+      "source": "https://github.com/google/fonts/tree/main/ofl/heebo"
+    },
+    {
+      "family": "Assistant",
+      "role": "humanist sans",
+      "style": "open, warm letterforms, good for longer lines",
+      "dir": "assistant",
+      "files": [{ "file": "Assistant-VF.ttf", "weight": "200 800", "upstream": "Assistant[wght].ttf" }],
+      "variable": true,
+      "weights": { "min": 200, "max": 800 },
+      "latin": true,
+      "license": "OFL-1.1",
+      "licenseFile": "assistant/OFL.txt",
+      "source": "https://github.com/google/fonts/tree/main/ofl/assistant"
+    },
+    {
+      "family": "Fredoka",
+      "role": "wide display",
+      "style": "rounded display with a width axis: font-stretch 125% is wide, 75% is condensed",
+      "dir": "fredoka",
+      "files": [{ "file": "Fredoka-VF.ttf", "weight": "300 700", "stretch": "75% 125%", "upstream": "Fredoka[wdth,wght].ttf" }],
+      "variable": true,
+      "weights": { "min": 300, "max": 700 },
+      "widths": { "min": 75, "max": 125 },
+      "latin": true,
+      "license": "OFL-1.1",
+      "licenseFile": "fredoka/OFL.txt",
+      "source": "https://github.com/google/fonts/tree/main/ofl/fredoka"
+    },
+    {
+      "family": "Frank Ruhl Libre",
+      "role": "serif",
+      "style": "the classic Hebrew book serif, light to black",
+      "dir": "frankruhllibre",
+      "files": [{ "file": "FrankRuhlLibre-VF.ttf", "weight": "300 900", "upstream": "FrankRuhlLibre[wght].ttf" }],
+      "variable": true,
+      "weights": { "min": 300, "max": 900 },
+      "latin": true,
+      "license": "OFL-1.1",
+      "licenseFile": "frankruhllibre/OFL.txt",
+      "source": "https://github.com/google/fonts/tree/main/ofl/frankruhllibre"
+    },
+    {
+      "family": "Playpen Sans Hebrew",
+      "role": "hand",
+      "style": "friendly handwriting, readable at heavy weights",
+      "dir": "playpensanshebrew",
+      "files": [{ "file": "PlaypenSansHebrew-VF.ttf", "weight": "100 800", "upstream": "PlaypenSansHebrew[wght].ttf" }],
+      "variable": true,
+      "weights": { "min": 100, "max": 800 },
+      "latin": true,
+      "license": "OFL-1.1",
+      "licenseFile": "playpensanshebrew/OFL.txt",
+      "source": "https://github.com/google/fonts/tree/main/ofl/playpensanshebrew"
+    }
+  ]
+}

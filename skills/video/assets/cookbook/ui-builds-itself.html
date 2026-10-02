@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: ui-builds-itself
+      What    An empty app screen shows dashed drop zones. On each beat a block snaps into its zone, and once it
+              has landed it comes alive: a number counts, bars rise, a ring fills, a switch turns on.
+      How     Every block waits invisible and 20 percent larger over its zone. On its time it shows within two
+              frames and settles to its size with an overshoot, and its zone fades out under it on the same frame.
+              The zones are built from the blocks themselves, so they always have the same place, size and corners.
+      Change  Colours in :root. The blocks and what they hold, BLOCKS (block, the beat it lands on), T_SWITCH.
+      Traps   The zone leaves on the frame its block arrives; a block with no background of its own (the title
+              row) would show the dashes through it. Blocks land in reading order, right to left. What lives inside
+              a block starts after the block has landed, never while it is still invisible. Few, large blocks.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; --card: #ffffff; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 960px; }
+      #glow { position: absolute; left: 540px; top: 960px; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 62%); }
+      #app { position: absolute; left: 150px; top: 330px; width: 780px; height: 1240px; border-radius: 64px; overflow: hidden;
+             background: var(--ink); color: var(--bg); box-shadow: 0 60px 120px rgba(0, 0, 0, 0.55); }
+      .zone { position: absolute; border: 4px dashed color-mix(in srgb, var(--bg) 30%, transparent); background: color-mix(in srgb, var(--bg) 4%, transparent); }
+      .blk { position: absolute; opacity: 0; }
+      #head { left: 40px; top: 44px; width: 700px; height: 100px; border-radius: 30px; }
+      #head b { position: absolute; right: 18px; top: 22px; font-size: 54px; font-weight: 800; line-height: 1.1; white-space: nowrap; }
+      #head i { position: absolute; left: 16px; top: 16px; width: 68px; height: 68px; border-radius: 50%; background: var(--accent-2); }
+      #hero { left: 40px; top: 180px; width: 700px; height: 360px; border-radius: 44px; background: var(--accent); }
+      #hero span { position: absolute; right: 36px; top: 30px; font-size: 42px; font-weight: 600; line-height: 1.2; }
+      #num { position: absolute; right: 36px; top: 92px; font-size: 120px; font-weight: 800; line-height: 1; direction: ltr; font-variant-numeric: tabular-nums; }
+      #bars { position: absolute; left: 36px; right: 36px; bottom: 30px; height: 84px; display: flex; align-items: flex-end; gap: 16px; }
+      #bars i { flex: 1; border-radius: 10px; background: color-mix(in srgb, var(--bg) 25%, transparent); transform-origin: 50% 100%; }
+      #bars i:last-child { background: var(--bg); }
+      .tile { top: 576px; width: 340px; height: 250px; border-radius: 40px; background: var(--card); box-shadow: 0 8px 20px rgba(15, 18, 22, 0.08); }
+      #t1 { left: 400px; }
+      #t2 { left: 40px; }
+      .tile span { position: absolute; right: 30px; top: 28px; font-size: 40px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+      .tile b { position: absolute; right: 30px; bottom: 30px; font-size: 80px; font-weight: 800; line-height: 1; direction: ltr; }
+      #t1 svg { position: absolute; left: 26px; bottom: 26px; width: 110px; height: 110px; }
+      #ring { fill: none; stroke: var(--accent); stroke-width: 16; }
+      #row { left: 40px; top: 862px; width: 700px; height: 150px; border-radius: 40px; background: var(--card); }
+      #row .ic { position: absolute; right: 30px; top: 35px; width: 80px; height: 80px; border-radius: 24px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+      #row span { position: absolute; right: 136px; top: 50px; font-size: 46px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+      #sw { position: absolute; left: 30px; top: 47px; width: 112px; height: 56px; border-radius: 28px; background: color-mix(in srgb, var(--bg) 18%, transparent); }
+      #knob { position: absolute; left: 6px; top: 6px; width: 44px; height: 44px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
+      #btn { left: 40px; top: 1048px; width: 700px; height: 140px; border-radius: 70px; background: var(--bg); color: var(--ink);
+             display: flex; align-items: center; justify-content: center; font-size: 56px; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="app" dir="rtl">
+          <div id="zones"></div>
+          <div class="blk" id="head"><b>הפרויקט שלי</b><i></i></div>
+          <div class="blk" id="hero"><span>השבוע</span><div id="num">0</div><div id="bars"></div></div>
+          <div class="blk tile" id="t1"><span>התקדמות</span><b>78%</b>
+            <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="48" fill="none" stroke="rgba(15,18,22,.1)" stroke-width="16" />
+              <circle id="ring" cx="60" cy="60" r="48" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1" transform="rotate(-90 60 60)" /></svg></div>
+          <div class="blk tile" id="t2"><span>משימות</span><b id="tasks">0</b></div>
+          <div class="blk" id="row"><i class="ic"></i><span>תזכורת יומית</span><div id="sw"><i id="knob"></i></div></div>
+          <div class="blk" id="btn">שמירה</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.4;
+      const BLOCKS = [["#head", 0.3], ["#hero", 0.55], ["#t1", 0.8], ["#t2", 0.92], ["#row", 1.15], ["#btn", 1.4]];
+      const T_SWITCH = 2.3;      // the switch in the list row turns on
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      // A number on screen: GSAP moves .v and the setter writes the rounded text.
+      const counter = (sel, fmt = (v) => String(Math.round(v))) => {
+        const el = document.querySelector(sel);
+        return { _v: 0, get v() { return this._v; }, set v(x) { this._v = x; el.textContent = fmt(x); } };
+      };
+
+      // ---- one dashed zone per block, at the block's own place, size and corners
+      const zones = document.getElementById("zones"), zoneOf = {};
+      for (const [sel] of BLOCKS) {
+        const b = document.querySelector(sel), z = document.createElement("div");
+        z.className = "zone";
+        Object.assign(z.style, { left: b.offsetLeft + "px", top: b.offsetTop + "px", width: b.offsetWidth + "px", height: b.offsetHeight + "px",
+                                 borderRadius: getComputedStyle(b).borderRadius });
+        zones.appendChild(z);
+        zoneOf[sel] = z;
+      }
+      document.getElementById("bars").innerHTML = [40, 62, 48, 80, 58, 72, 100].map((h) => '<i style="height:' + h + '%"></i>').join("");
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      // frame 0: the empty screen is already settling into place
+      tl.fromTo("#app", { y: 60, rotation: -1.5 }, { y: 0, rotation: 0, duration: 0.7, ease: "expo.out" }, 0);
+
+      // ---- the snap: visible within two frames, settles from 1.2 with an overshoot, the zone hands over
+      for (const [sel, at] of BLOCKS) {
+        tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: 0.06, ease: "none" }, at);
+        later(sel, { scale: 1.2 }, { scale: 1, duration: 0.26, ease: "back.out(2.2)" }, at);
+        later(zoneOf[sel], { opacity: 1 }, { opacity: 0, duration: 0.05, ease: "none" }, at);
+      }
+
+      // ---- each block comes alive once it has landed
+      const T = Object.fromEntries(BLOCKS);
+      const steps = counter("#num", (v) => Math.round(v).toLocaleString("en-US"));
+      later(steps, { v: 0 }, { v: 1284, duration: 1.0, ease: "power3.out" }, T["#hero"] + 0.1);
+      later(steps, { v: 1284 }, { v: 1297, duration: DUR - T["#hero"] - 1.1, ease: "none" }, T["#hero"] + 1.1);
+      tl.fromTo("#bars i", { scaleY: 0.15 }, { scaleY: 1, duration: 0.45, ease: "back.out(1.6)", stagger: 0.04 }, T["#hero"] + 0.12);
+      later("#bars i", { scaleY: 1 }, { scaleY: 0.86, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 3, stagger: 0.06 }, T["#hero"] + 0.8);
+      // the ring fills to 78 percent: its dash offset is an attribute (as CSS it would not draw on a pathLength element)
+      tl.fromTo("#ring", { attr: { "stroke-dashoffset": 1 } }, { attr: { "stroke-dashoffset": 0.22 }, duration: 0.8, ease: "power2.out" }, T["#t1"] + 0.1);
+      later(counter("#tasks"), { v: 0 }, { v: 24, duration: 0.6, ease: "power2.out" }, T["#t2"] + 0.1);
+      tl.fromTo("#knob", { x: 0 }, { x: 56, duration: 0.24, ease: "back.out(2)" }, T_SWITCH);
+      tl.fromTo("#sw", { backgroundColor: "rgba(15,18,22,0.18)" }, { backgroundColor: "#ff6a3d", duration: 0.12, ease: "none" }, T_SWITCH);
+      later("#row", { scale: 1 }, { scale: 1.03, duration: 0.1, ease: "power2.out", yoyo: true, repeat: 1 }, T_SWITCH);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: fit-and-hero-word
+      What    Lines of text that each fill the safe width whatever the words are, stacked into one block, with one
+              hero word that carries a gradient.
+      How     fit() sets every line to a known size, reads how wide the text came out, and scales the size so the
+              text is exactly as wide as the safe area (never above MAX_SIZE). Then it stacks the lines around
+              CENTER_Y. The gradient of the hero word sits on each letter, and each letter is animated on its own.
+      Change  Colours in :root. The lines and which one is the hero. SAFE_W, MAX_SIZE, LINE_GAP, CENTER_Y, the times.
+      Traps   Measure after document.fonts.ready. When the script first runs the font file is not loaded yet and the
+              browser measures a fallback font (in our test 764 px instead of 1023 px for the same word).
+              A fitted line has no spare room: it cannot land from larger or slide in. Use a rise, or letters that
+              grow in place. fit() divides by PUSH, so the camera push ends on the safe width and not past it.
+              A gradient set on the word does not reach letters that move on their own, so it goes on every letter.
+              The padding on .g keeps tall and deep letters (ל, ק, ץ) from being cut by the gradient box.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 860px; }
+      #glow { position: absolute; left: 540px; top: 860px; width: 1500px; height: 1300px; margin: -650px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 24%, transparent) 0%, transparent 64%); }
+      /* A line is as wide as the safe area and never wraps. fit() writes its font-size and its top. */
+      .line { position: absolute; left: 80px; width: 920px; text-align: center; white-space: nowrap; line-height: 1;
+              font-weight: 800; color: var(--ink); }
+      .line.hero { font-weight: 900; }
+      .fit { display: inline-block; }
+      .g { display: inline-block; padding: 0.14em 0.03em 0.2em; margin: -0.14em -0.03em -0.2em;
+           background: linear-gradient(180deg, var(--accent-2) 12%, var(--accent) 88%);
+           -webkit-background-clip: text; background-clip: text; color: transparent; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div class="line" id="l1" dir="rtl"><span class="fit">כל שורה</span></div>
+        <div class="line hero" id="l2" dir="rtl"><span class="fit">מלאה</span></div>
+        <div class="line" id="l3" dir="rtl"><span class="fit">מקצה לקצה</span></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3, PUSH = 1.04;       // PUSH: how far the camera scales by the last frame
+      const SAFE_W = 920;               // the clean width of a reel: 1080 minus 80 on each side
+      const MAX_SIZE = 420;             // a two letter word must not become a wall
+      const LINE_GAP = 0.94;            // line pitch, as a share of the font size
+      const CENTER_Y = 860;             // the block is centred on this height
+      const T_HERO = 0.5, T_LAST = 1.15;
+
+      // The hero word: one span per letter, each with its own gradient.
+      const hero = document.querySelector(".hero .fit");
+      hero.innerHTML = Array.from(hero.textContent, (c) => '<span class="g">' + c + "</span>").join("");
+
+      // Size every line to the safe width, then stack them.
+      const lines = Array.from(document.querySelectorAll(".line"));
+      const REF = 200;
+      function fit() {
+        const sizes = lines.map((line) => {
+          line.style.fontSize = REF + "px";
+          return Math.min(MAX_SIZE, REF * (SAFE_W / PUSH) / line.firstElementChild.offsetWidth);
+        });
+        let y = CENTER_Y - sizes.reduce((sum, s) => sum + s * LINE_GAP, 0) / 2;
+        lines.forEach((line, i) => {
+          line.style.fontSize = sizes[i].toFixed(1) + "px";
+          line.style.top = y.toFixed(0) + "px";
+          y += sizes[i] * LINE_GAP;
+        });
+      }
+      fit();                               // a first pass, with whatever font is there
+      document.fonts.ready.then(fit);      // the real pass: the font file has arrived, no frame has been taken yet
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // line 1 is already rising on frame 0
+      tl.fromTo("#l1 .fit", { opacity: 0.7, y: 20, filter: "blur(4px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.22, ease: "power2.out" }, 0);
+      // the hero word: every letter grows in place, right to left
+      hero.querySelectorAll(".g").forEach((g, i) =>
+        tl.fromTo(g, { opacity: 0, scale: 0.5, y: 50 }, { opacity: 1, scale: 1, y: 0, duration: 0.22, ease: "back.out(2)" }, T_HERO + i * 0.04));
+      tl.fromTo("#l3 .fit", { opacity: 0, y: 50, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.24, ease: "power3.out" }, T_LAST);
+
+      // the hold: one push on the block, the light opens behind the hero word
+      tl.fromTo("#cam", { scale: 1 }, { scale: PUSH, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.8, opacity: 0.5 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.out" }, 0);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

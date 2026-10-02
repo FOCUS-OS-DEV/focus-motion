@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: conveyor
+      What    A belt carries tiles past the camera, right to left. It runs, brakes to a crawl, surges, and stops with
+              one tile exactly in the centre. The others have dropped off the end; the one that stayed is ringed,
+              lifted and checked.
+      How     The belt's position is the running total of a speed profile (SPEED: time, px per second). That total
+              becomes one custom ease, shared by the tiles, the surface marks, the rollers and the drum, so nothing
+              slips. The first tile is placed so that tile number PICK lands on the centre when the belt stops, and
+              each tile's drop starts at the moment its own centre reaches the end of the belt.
+      Change  Colours in :root. SPEED (put the brake and the stop on words or beats), STEP, PICK, COUNT, the tile
+              shapes (.s0 .s1 .s2) and the label. Tiles may hold letters or your own images, never a borrowed logo.
+      Traps   Never tween the tiles and the rollers separately: they drift apart within a second. Change SPEED and
+              everything follows. The belt and the passed tiles dim once the pick is made, so the eye has one place.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam, #belt, #track { position: absolute; inset: 0; }
+      #cam { transform-origin: 540px 900px; }
+      .leg { position: absolute; top: 1090px; width: 44px; height: 800px; border-radius: 8px; background: color-mix(in srgb, var(--ink) 7%, var(--bg)); }
+      #frame { position: absolute; left: 70px; top: 1000px; width: 1200px; height: 96px; border-radius: 48px 0 0 48px; overflow: hidden;
+               background: color-mix(in srgb, var(--ink) 10%, var(--bg)); box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--ink) 16%, transparent); }
+      #surface { position: absolute; left: 44px; right: 0; top: 0; height: 22px; background-color: color-mix(in srgb, var(--ink) 20%, var(--bg));
+                 background-image: repeating-linear-gradient(90deg, var(--accent-2) 0 5px, transparent 5px 40px); }
+      .roller, #drum { position: absolute; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 4px var(--accent); }
+      .roller { top: 38px; width: 44px; height: 44px; margin-left: -22px; }
+      #drum { left: 70px; top: 1000px; width: 96px; height: 96px; }
+      .roller::before, #drum::before { content: ""; position: absolute; left: 50%; top: 12%; bottom: 12%; width: 4px; margin-left: -2px; border-radius: 2px; background: var(--accent); }
+      .slot { position: absolute; top: 810px; width: 190px; height: 190px; margin-left: -95px; }
+      .tile { position: absolute; inset: 0; border-radius: 46px; background: var(--ink); box-shadow: 0 16px 30px rgba(0, 0, 0, 0.45); transform-origin: 50% 100%; }
+      .tile::before { content: ""; position: absolute; left: 26%; top: 26%; width: 48%; height: 48%; background: var(--bg); }
+      .s0::before { border-radius: 50%; }
+      .s1::before { border-radius: 18%; transform: rotate(45deg) scale(0.86); }
+      .s2::before { clip-path: polygon(50% 4%, 100% 96%, 0 96%); }
+      .pick .tile { background: var(--accent); }
+      .pick .tile::before { background: var(--ink); clip-path: polygon(50% 0, 62% 35%, 100% 38%, 70% 60%, 80% 98%, 50% 76%, 20% 98%, 30% 60%, 0 38%, 38% 35%); }
+      #lift { position: absolute; inset: 0; }
+      #glow { position: absolute; left: -215px; top: -215px; width: 620px; height: 620px; border-radius: 50%; opacity: 0;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 60%, transparent) 0%, transparent 68%); }
+      #ring { position: absolute; inset: -18px; border-radius: 62px; border: 7px solid var(--accent-2); opacity: 0; }
+      #check { position: absolute; left: -32px; top: -32px; width: 78px; height: 78px; opacity: 0; }
+      #label { position: absolute; left: 80px; right: 80px; top: 400px; text-align: center; white-space: nowrap; line-height: 1; font-size: 140px; font-weight: 900; color: var(--ink); }
+      #label .w { display: inline-block; opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4.4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="belt">
+          <div class="leg" style="left: 300px"></div><div class="leg" style="left: 780px"></div>
+          <div id="frame"><div id="surface"></div></div>
+          <div id="drum"></div>
+        </div>
+        <div id="track"></div>
+        <div id="label" dir="rtl"><span class="w">הבחירה</span> <span class="w">שלכם</span></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 4.4, T_STOP = 3.0;
+      // the belt's speed over time: [seconds, px per second]. It runs, brakes to a crawl, surges, and stops.
+      const SPEED = [[0, 900], [0.9, 900], [1.15, 120], [1.5, 120], [1.75, 2000], [2.35, 2000], [T_STOP, 0], [DUR, 0]];
+      const STEP = 240;            // distance between tile centres
+      const COUNT = 17, PICK = 14; // tiles on the belt, and the one that stays (counted from the first, 0)
+      const CENTRE = 540, END = 130;   // where the pick stops, and where the belt ends
+
+      // distance travelled, as a table: P(t) is the running total of the speed
+      const N = 660, dt = DUR / N, dist = [0];
+      const speedAt = (t) => {
+        for (let i = 1; i < SPEED.length; i++) { const [t0, v0] = SPEED[i - 1], [t1, v1] = SPEED[i]; if (t <= t1) return v0 + (v1 - v0) * (t - t0) / (t1 - t0 || 1); }
+        return 0;
+      };
+      for (let i = 1; i <= N; i++) dist.push(dist[i - 1] + speedAt((i - 0.5) * dt) * dt);
+      const TOTAL = dist[N];
+      const P = (t) => { const x = Math.min(N, Math.max(0, t / dt)), k = Math.floor(x); return k >= N ? TOTAL : dist[k] + (dist[k + 1] - dist[k]) * (x - k); };
+      const beltEase = (p) => P(p * DUR) / TOTAL;                       // the one ease everything on the belt uses
+      const whenAt = (d) => { let lo = 0, hi = DUR; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (P(m) < d) lo = m; else hi = m; } return hi; };
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // ---- the tiles: the first one is placed so that tile PICK is on the centre when the belt has stopped
+      const track = document.getElementById("track"), X0 = P(T_STOP) + CENTRE - STEP * PICK;
+      for (let k = 0; k < COUNT; k++) {
+        const slot = document.createElement("div"), x = X0 + STEP * k;
+        slot.className = "slot" + (k === PICK ? " pick" : "");
+        slot.style.left = x.toFixed(1) + "px";
+        slot.innerHTML = k === PICK
+          ? '<div id="lift"><div id="glow"></div><div id="ring"></div><div class="tile"></div><svg id="check" viewBox="0 0 78 78"><circle cx="39" cy="39" r="36" fill="var(--accent-2)"/>' +
+            '<path d="M23 40 L34 51 L56 28" fill="none" stroke="var(--bg)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>'
+          : '<div class="tile s' + (k % 3) + '"></div>';
+        track.appendChild(slot);
+        // a tile tips off the end at the moment its centre gets there
+        if (k !== PICK && x - END < TOTAL) {
+          const t0 = whenAt(x - END), tile = slot.firstChild;
+          later(tile, { y: 0 }, { y: 1150, duration: 0.75, ease: "power2.in" }, t0);
+          later(tile, { rotation: 0 }, { rotation: -80, duration: 0.75, ease: "power1.in" }, t0);
+        }
+      }
+      const frame = document.getElementById("frame");
+      for (let x = 150; x < 1200; x += 118) { const r = document.createElement("i"); r.className = "roller"; r.style.left = x + "px"; frame.appendChild(r); }
+
+      // ---- the belt runs: tiles, surface marks, rollers and drum on the same ease
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.04, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#track", { x: 0 }, { x: -TOTAL, duration: DUR, ease: beltEase }, 0);
+      tl.fromTo("#surface", { backgroundPosition: "0px 0px" }, { backgroundPosition: (-TOTAL).toFixed(1) + "px 0px", duration: DUR, ease: beltEase }, 0);
+      tl.fromTo(".roller", { rotation: 0 }, { rotation: -TOTAL / 22 * 180 / Math.PI, duration: DUR, ease: beltEase }, 0);
+      tl.fromTo("#drum", { rotation: 0 }, { rotation: -TOTAL / 48 * 180 / Math.PI, duration: DUR, ease: beltEase }, 0);
+
+      // ---- the pick: the ring snaps on, the glow opens, the tile lifts and grows, the check lands, the rest steps back
+      later("#ring", { opacity: 0, scale: 1.4 }, { opacity: 1, scale: 1, duration: 0.22, ease: "back.out(2)" }, T_STOP);
+      later("#glow", { opacity: 0, scale: 0.5 }, { opacity: 1, scale: 1, duration: 0.4, ease: "power2.out" }, T_STOP);
+      later("#belt, .slot:not(.pick)", { opacity: 1, y: 0 }, { opacity: 0.3, y: 50, duration: 0.36, ease: "power2.inOut" }, T_STOP + 0.1);
+      later("#lift", { y: 0, scale: 1 }, { y: -150, scale: 1.5, duration: 0.4, ease: "expo.out" }, T_STOP + 0.12);
+      later("#check", { opacity: 0, scale: 0.2, rotation: -30 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.22, ease: "back.out(2.6)" }, T_STOP + 0.32);
+      later("#label .w", { opacity: 0, y: 64 }, { opacity: 1, y: 0, duration: 0.24, ease: "back.out(1.7)", stagger: 0.07 }, T_STOP + 0.3);
+      later("#lift", { scale: 1.5 }, { scale: 1.55, duration: DUR - T_STOP - 0.52, ease: "none" }, T_STOP + 0.52);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

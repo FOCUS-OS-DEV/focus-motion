@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: simple-character
+      What    A small friendly character made of a few SVG shapes. It breathes, blinks, looks at where it is going,
+              crouches, jumps to a higher step with squash and stretch, lands in a puff of dust and is pleased.
+      How     Three nested boxes, each with one job, so no two tweens fight over a transform: #hero travels (x and y
+              apart: x runs evenly, y rises fast and falls faster, which makes the arc), #lean tilts, #squash squashes
+              and stretches from the feet. The face changes through SVG attributes: a blink is the eye's height.
+      Change  Colours in :root. The shapes inside the svg (keep the ids of the eyes). JUMP (how far and how high),
+              the times, the steps, the word.
+      Traps   Squash keeps the volume: wider when shorter, thinner when taller. The crouch before the jump and the
+              squash after it are what sell the weight; without them it slides. Scale the eyes through attributes
+              (ry), not with a scale on an SVG child. Draw your own character: this is not a place for a mascot
+              that belongs to someone else.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 1000px; }
+      #glow { position: absolute; left: 340px; top: 900px; width: 1300px; height: 1300px; margin: -650px 0 0 -650px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 24%, transparent) 0%, transparent 62%); }
+      .step { position: absolute; height: 120px; border-radius: 34px; background: color-mix(in srgb, var(--ink) 16%, var(--bg));
+              box-shadow: inset 0 12px 0 color-mix(in srgb, var(--ink) 70%, var(--bg)); }
+      #low { left: 470px; top: 1380px; width: 440px; }
+      #high { left: 110px; top: 1010px; width: 460px; }
+      .shadow { position: absolute; top: -13px; width: 250px; height: 32px; margin-left: -125px; border-radius: 50%; background: rgba(0, 0, 0, 0.45); }
+      .dust { position: absolute; top: 978px; width: 104px; height: 48px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 55%, transparent); opacity: 0; }
+      #hero { position: absolute; left: 540px; top: 1050px; width: 300px; height: 330px; }
+      #lean, #squash { position: absolute; inset: 0; }
+      #lean { transform-origin: 50% 60%; }
+      #squash { transform-origin: 50% 100%; }
+      #hero svg { display: block; width: 300px; height: 330px; overflow: visible; }
+      #word { position: absolute; left: 80px; right: 80px; top: 400px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 200px; font-weight: 900; color: var(--ink); opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="word" dir="rtl">עוד שלב</div>
+        <div class="step" id="high"><div class="shadow" id="sh-high" style="left: 230px; opacity: 0"></div></div>
+        <div class="step" id="low"><div class="shadow" id="sh-low" style="left: 220px"></div></div>
+        <div class="dust" id="dust-l" style="left: 210px"></div>
+        <div class="dust" id="dust-r" style="left: 366px"></div>
+        <div id="hero"><div id="lean"><div id="squash">
+          <svg viewBox="0 0 200 220" aria-hidden="true">
+            <ellipse cx="68" cy="205" rx="28" ry="14" fill="var(--accent-2)" />
+            <ellipse cx="132" cy="205" rx="28" ry="14" fill="var(--accent-2)" />
+            <rect x="2" y="104" width="26" height="48" rx="13" fill="color-mix(in srgb, var(--accent) 72%, var(--bg))" />
+            <rect x="172" y="104" width="26" height="48" rx="13" fill="color-mix(in srgb, var(--accent) 72%, var(--bg))" />
+            <rect x="20" y="40" width="160" height="162" rx="68" fill="var(--accent)" />
+            <ellipse cx="66" cy="72" rx="28" ry="12" fill="#fff" opacity="0.3" transform="rotate(-24 66 72)" />
+            <ellipse class="eye" cx="78" cy="116" rx="15" ry="21" fill="var(--ink)" />
+            <ellipse class="eye" cx="122" cy="116" rx="15" ry="21" fill="var(--ink)" />
+            <circle class="pupil" cx="80" cy="120" r="7" fill="var(--bg)" />
+            <circle class="pupil" cx="124" cy="120" r="7" fill="var(--bg)" />
+            <g id="happy" opacity="0" fill="none" stroke="var(--ink)" stroke-width="10" stroke-linecap="round">
+              <path d="M62 124 Q78 100 94 124" /><path d="M106 124 Q122 100 138 124" />
+            </g>
+          </svg>
+        </div></div></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.2;
+      const JUMP = { x: -350, peak: -560, y: -370 };   // to the left (the way Hebrew reads), over a peak, onto the higher step
+      const T_BLINK = 0.25, T_LOOK = 0.5, T_CROUCH = 0.74;
+      const T_JUMP = 0.9, AIR = 0.42, T_LAND = T_JUMP + AIR;
+      const T_WORD = T_LAND + 0.14, T_HOP = T_LAND + 0.55;
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      const squash = (from, to, dur, ease, at) => later("#squash", { scaleX: from[0], scaleY: from[1] }, { scaleX: to[0], scaleY: to[1], duration: dur, ease }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      // ---- idle: a breath that is already under way on frame 0, a blink, then the eyes find the target
+      tl.fromTo("#squash", { scaleX: 1.03, scaleY: 0.97 }, { scaleX: 0.99, scaleY: 1.02, duration: 0.5, ease: "sine.inOut" }, 0);
+      later(".eye", { attr: { ry: 21 } }, { attr: { ry: 2 }, duration: 0.05, ease: "none" }, T_BLINK);
+      later(".eye", { attr: { ry: 2 } }, { attr: { ry: 21 }, duration: 0.07, ease: "none" }, T_BLINK + 0.05);
+      later(".pupil", { x: 0, y: 0 }, { x: -7, y: -5, duration: 0.14, ease: "power2.out" }, T_LOOK);
+
+      // ---- the jump: crouch, stretch on the way up, even travel, a fast rise and a faster fall, a small lean
+      squash([0.99, 1.02], [1.15, 0.8], T_JUMP - T_CROUCH, "power2.out", T_CROUCH);
+      squash([1.15, 0.8], [0.88, 1.17], 0.08, "power2.out", T_JUMP);
+      squash([0.88, 1.17], [1, 1], AIR - 0.08, "sine.out", T_JUMP + 0.08);
+      later("#hero", { x: 0 }, { x: JUMP.x, duration: AIR, ease: "none" }, T_JUMP);
+      later("#hero", { y: 0 }, { y: JUMP.peak, duration: AIR * 0.55, ease: "power2.out" }, T_JUMP);
+      later("#hero", { y: JUMP.peak }, { y: JUMP.y, duration: AIR * 0.45, ease: "power2.in" }, T_JUMP + AIR * 0.55);
+      later("#lean", { rotation: 0 }, { rotation: -14, duration: AIR * 0.5, ease: "sine.out" }, T_JUMP);
+      later("#lean", { rotation: -14 }, { rotation: 0, duration: AIR * 0.5, ease: "sine.in" }, T_JUMP + AIR * 0.5);
+      later("#sh-low", { opacity: 1, scaleX: 1 }, { opacity: 0, scaleX: 0.4, duration: 0.12, ease: "power2.out" }, T_JUMP);
+
+      // ---- the landing: squash, dust to both sides, the step gives a little, the eyes smile
+      squash([1, 1], [1.22, 0.76], 0.06, "power2.out", T_LAND);
+      squash([1.22, 0.76], [1, 1], 0.32, "back.out(2.6)", T_LAND + 0.06);
+      later("#sh-high", { opacity: 0, scaleX: 0.4 }, { opacity: 1, scaleX: 1, duration: 0.1, ease: "power2.out" }, T_LAND - 0.06);
+      later("#high", { y: 10 }, { y: 0, duration: 0.3, ease: "back.out(3)" }, T_LAND);
+      later("#dust-l", { opacity: 0.9, x: 0, scale: 0.6 }, { opacity: 0, x: -110, scale: 1.5, duration: 0.34, ease: "power2.out" }, T_LAND);
+      later("#dust-r", { opacity: 0.9, x: 0, scale: 0.6 }, { opacity: 0, x: 110, scale: 1.5, duration: 0.34, ease: "power2.out" }, T_LAND);
+      later(".eye, .pupil", { opacity: 1 }, { opacity: 0, duration: 0.001 }, T_LAND);
+      later("#happy", { opacity: 0 }, { opacity: 1, duration: 0.001 }, T_LAND);
+
+      // ---- the reaction: the word rises, the character hops once and settles into a slow breath
+      later("#word", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.26, ease: "back.out(1.7)" }, T_WORD);
+      later("#lean", { y: 0 }, { y: -64, duration: 0.12, ease: "power2.out" }, T_HOP);
+      later("#lean", { y: -64 }, { y: 0, duration: 0.12, ease: "power2.in" }, T_HOP + 0.12);
+      squash([1, 1], [1.1, 0.9], 0.05, "power2.out", T_HOP + 0.24);
+      squash([1.1, 0.9], [1, 1], 0.24, "back.out(2.4)", T_HOP + 0.29);
+      squash([1, 1], [1.03, 0.97], DUR - T_HOP - 0.53, "sine.inOut", T_HOP + 0.53);
+      later("#word", { scale: 1 }, { scale: 1.035, duration: DUR - T_WORD - 0.26, ease: "none" }, T_WORD + 0.26);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

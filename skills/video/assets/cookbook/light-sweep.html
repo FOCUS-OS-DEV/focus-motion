@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: light-sweep
+      What    One slanted band of light crosses a mark and its name, once. The light touches only the shapes
+              themselves, never the background around them.
+      How     The lockup exists twice, one copy exactly on top of the other. The top copy is all white and is hidden
+              by a mask: a slanted gradient band, much wider than the box, whose position is one tweened number
+              (--p). Where the band is, the white copy shows. Both copies share their classes, so one tween moves
+              both and they never drift apart.
+      Change  Colours in :root. The mark and the name. T_SWEEP, SWEEP (seconds), FROM and TO (swap them to cross left
+              to right), the band's angle and width in the gradient of #shine.
+      Traps   An image logo works the same way: in the white copy give the image filter: brightness(0) invert(1).
+              A sweep on pure white text is invisible, so the resting text is a shade darker. One sweep, at the
+              moment the lockup has settled. A band that crosses again and again reads as a loading shimmer.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 860px; }
+      #glow { position: absolute; left: 540px; top: 860px; width: 1400px; height: 1400px; margin: -700px 0 0 -700px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 62%); }
+      #lockup { position: absolute; left: 80px; top: 500px; width: 920px; height: 720px; transform-origin: 50% 50%; }
+      .copy { position: absolute; inset: 0; }
+      .mark { position: absolute; left: 310px; top: 40px; width: 300px; height: 300px; border-radius: 78px; background: var(--accent);
+              text-align: center; line-height: 292px; font-size: 220px; font-weight: 900; color: var(--bg); }
+      .name { position: absolute; left: 0; right: 0; top: 420px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 180px; font-weight: 900; color: color-mix(in srgb, var(--ink) 80%, var(--bg)); }
+      /* the white copy, seen only through a slanted band; --p moves the band across (0 = off to the right, 100 = off to the left) */
+      #shine { --p: 0; filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.7));
+               -webkit-mask-image: linear-gradient(105deg, transparent 43%, #000 50%, transparent 57%); mask-image: linear-gradient(105deg, transparent 43%, #000 50%, transparent 57%);
+               -webkit-mask-size: 300% 100%; mask-size: 300% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+               -webkit-mask-position: calc(var(--p) * 1%) 0; mask-position: calc(var(--p) * 1%) 0; }
+      #shine .mark { background: #fff; }
+      #shine .name { color: #fff; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="lockup">
+          <div class="copy" id="base">
+            <div class="mark" dir="rtl">א</div>
+            <div class="name" dir="rtl">השם שלכם</div>
+          </div>
+          <div class="copy" id="shine"></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3;
+      const T_NAME = 0.2;      // the name rises under the mark
+      const T_SWEEP = 1.0;     // the light starts, once everything has settled
+      const SWEEP = 0.75;      // how long the crossing takes
+      const FROM = 0, TO = 100;   // right to left, the way Hebrew is read; swap for left to right
+
+      // the white copy is made from the base, so the two can never differ
+      document.getElementById("shine").innerHTML = document.getElementById("base").innerHTML;
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.8, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      // the mark is already landing on frame 0; the name rises whole. Class selectors move both copies together.
+      tl.fromTo(".mark", { scale: 1.16, rotation: -8 }, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(1.8)" }, 0);
+      tl.fromTo(".name", { y: 70, opacity: 0 }, { y: 0, opacity: 1, duration: 0.3, ease: "back.out(1.6)" }, T_NAME);
+      // the sweep: one number, one pass
+      tl.fromTo("#shine", { "--p": FROM }, { "--p": TO, duration: SWEEP, ease: "sine.inOut" }, T_SWEEP);
+      // a small lift as the light passes, then the hold keeps pushing
+      tl.fromTo("#lockup", { scale: 1 }, { scale: 1.03, duration: SWEEP, ease: "sine.inOut" }, T_SWEEP);
+      tl.fromTo("#lockup", { scale: 1.03 }, { scale: 1.045, duration: DUR - T_SWEEP - SWEEP, ease: "none", immediateRender: false }, T_SWEEP + SWEEP);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: phone-with-live-screen
+      What    A phone drawn in CSS that turns slowly in 3D while its screen keeps working: a number counts, bars
+              rise and breathe, goals fill up, and a notification drops in.
+      How     The phone is a 3D rig: a body, and a screen that sits one pixel in front of it. The screen is plain
+              HTML laid out right to left, with a few large elements. Everything on it is on the scene timeline:
+              the count is a number whose setter writes the text, the fills grow with scaleX from their left end.
+      Change  Colours in :root. The app (title, ROWS, STEPS), the size of the rig, the turn of the phone, T_TOAST.
+      Traps   A screen must never be a still picture: keep at least one thing moving on it until the last frame,
+              and keep the elements few and large. Lists and labels run right to left, progress bars fill left to
+              right. No logo or name of a real app. overflow: hidden goes on the screen, not on the rig, or the 3D
+              goes flat. The turn stays under about 20 degrees, so the text on the screen stays readable.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 905px; }
+      /* The stage gives the depth. Its scale is the size of the phone in the frame: change it here, not in the screen. */
+      #stage { position: absolute; inset: 0; perspective: 2400px; perspective-origin: 540px 905px; transform: scale(1.1); transform-origin: 540px 905px; }
+      #glow { position: absolute; left: 540px; top: 905px; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 34%, transparent) 0%, transparent 62%); }
+      #phone { position: absolute; left: 250px; top: 315px; width: 580px; height: 1180px; transform-style: preserve-3d; }
+      #body { position: absolute; inset: 0; border-radius: 96px; background: #000;
+              box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.16), 0 70px 140px rgba(0, 0, 0, 0.6); }
+      #screen { position: absolute; inset: 18px; border-radius: 80px; overflow: hidden; background: var(--ink); color: var(--bg);
+                transform: translateZ(1px); }
+      #island { position: absolute; left: 50%; top: 22px; width: 160px; height: 46px; margin-left: -80px; border-radius: 23px; background: #000; }
+      #title { position: absolute; right: 36px; top: 100px; font-size: 50px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
+      #avatar { position: absolute; left: 36px; top: 98px; width: 66px; height: 66px; border-radius: 50%; background: var(--accent-2); }
+      #hero { position: absolute; left: 28px; right: 28px; top: 192px; height: 300px; border-radius: 44px; background: var(--accent); }
+      #hero span { position: absolute; right: 32px; top: 26px; font-size: 38px; font-weight: 600; line-height: 1.2; }
+      #steps { position: absolute; right: 30px; top: 78px; font-size: 104px; font-weight: 800; line-height: 1; direction: ltr; font-variant-numeric: tabular-nums; }
+      #bars { position: absolute; left: 32px; right: 32px; bottom: 26px; height: 64px; display: flex; align-items: flex-end; gap: 14px; direction: ltr; }
+      #bars i { flex: 1; border-radius: 8px; background: color-mix(in srgb, var(--bg) 26%, transparent); transform-origin: 50% 100%; }
+      #bars i:last-child { background: var(--bg); }
+      .goal { position: absolute; left: 28px; right: 28px; height: 132px; border-radius: 34px; background: #fff; box-shadow: 0 6px 16px rgba(15, 18, 22, 0.07); }
+      .goal b { position: absolute; right: 30px; top: 20px; font-size: 42px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+      .goal span { position: absolute; left: 30px; top: 20px; font-size: 42px; font-weight: 800; line-height: 1.2; direction: ltr; color: var(--accent); }
+      .track { position: absolute; left: 30px; right: 30px; bottom: 26px; height: 16px; border-radius: 8px; background: color-mix(in srgb, var(--bg) 10%, transparent); overflow: hidden; }
+      .fill { position: absolute; inset: 0; border-radius: 8px; background: var(--accent); transform-origin: 0 50%; }
+      #tabs { position: absolute; left: 40px; right: 40px; bottom: 44px; height: 60px; display: flex; justify-content: space-around; align-items: center; }
+      #tabs i { width: 46px; height: 46px; border-radius: 14px; background: color-mix(in srgb, var(--bg) 16%, transparent); }
+      #tabs i:first-child { background: var(--accent); }
+      #toast { position: absolute; left: 28px; right: 28px; top: 84px; height: 96px; border-radius: 30px; background: var(--bg); color: var(--ink);
+               display: flex; align-items: center; justify-content: center; font-size: 44px; font-weight: 700; white-space: nowrap; }
+      #glare { position: absolute; left: -420px; top: -200px; width: 380px; height: 1600px; transform: rotate(16deg);
+               background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="stage">
+        <div id="phone">
+          <div id="body"></div>
+          <div id="screen" dir="rtl">
+            <div id="island"></div>
+            <div id="title">היום שלי</div>
+            <div id="avatar"></div>
+            <div id="hero"><span>צעדים</span><div id="steps"></div><div id="bars"></div></div>
+            <div id="goals"></div>
+            <div id="tabs"><i></i><i></i><i></i><i></i></div>
+            <div id="toast">יעד הושג</div>
+            <div id="glare"></div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 4;
+      const STEPS = [6900, 8240];                                  // the number counts from, to
+      const ROWS = [["שתייה", 75], ["שינה", 60], ["אימון", 90]];     // [goal, percent]
+      const WEEK = [38, 62, 50, 78, 58, 70, 100];                  // the small bars, percent of their height
+      const T_TOAST = 2.3;                                         // a goal is reached: the notification drops in
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // ---- build the screen
+      document.getElementById("bars").innerHTML = WEEK.map((h) => '<i style="height:' + h + '%"></i>').join("");
+      document.getElementById("goals").innerHTML = ROWS.map(([name, pct], i) =>
+        '<div class="goal" style="top:' + (530 + i * 152) + 'px"><b>' + name + '</b><span>' + pct + '%</span><div class="track"><i class="fill"></i></div></div>').join("");
+
+      // ---- the rig: one slow turn and a push for the whole scene, the glass catches a light once
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#phone", { rotationY: -18, rotationX: 5, y: 30 }, { rotationY: 12, rotationX: 2, y: -10, duration: DUR, ease: "sine.inOut" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      tl.fromTo("#glare", { x: 0 }, { x: 1250, duration: 1.5, ease: "sine.inOut" }, 0.7);
+
+      // ---- the screen is alive from frame 0 to the last frame
+      const steps = document.getElementById("steps");
+      const count = { _v: 0, get v() { return this._v; }, set v(x) { this._v = x; steps.textContent = Math.round(x).toLocaleString("en-US"); } };
+      tl.fromTo(count, { v: STEPS[0] }, { v: STEPS[1], duration: 1.6, ease: "power3.out" }, 0);
+      later(count, { v: STEPS[1] }, { v: STEPS[1] + 46, duration: DUR - 1.6, ease: "none" }, 1.6);       // it keeps counting slowly
+      gsap.utils.toArray("#bars i").forEach((bar, i) => {
+        tl.fromTo(bar, { scaleY: 0.25 }, { scaleY: 1, duration: 0.5, ease: "back.out(1.6)" }, i * 0.05);
+        later(bar, { scaleY: 1 }, { scaleY: 0.82 + 0.03 * (i % 3), duration: 0.55 + 0.07 * (i % 3), ease: "sine.inOut", yoyo: true, repeat: 5 }, 0.9);
+      });
+      gsap.utils.toArray(".fill").forEach((fill, i) =>
+        tl.fromTo(fill, { scaleX: 0.06 }, { scaleX: ROWS[i][1] / 100, duration: 0.9, ease: "power3.out" }, 0.25 + i * 0.14));
+
+      // ---- an event on the screen: the last goal is reached
+      const last = ROWS.length - 1, goal = document.querySelectorAll(".goal")[last], pct = goal.querySelector("span");
+      const reach = { _v: 0, get v() { return this._v; }, set v(x) { this._v = x; pct.textContent = Math.round(x) + "%"; } };
+      later(reach, { v: ROWS[last][1] }, { v: 100, duration: 0.4, ease: "power2.out" }, T_TOAST - 0.4);
+      later(goal.querySelector(".fill"), { scaleX: ROWS[last][1] / 100 }, { scaleX: 1, duration: 0.4, ease: "power2.out" }, T_TOAST - 0.4);
+      later(goal, { scale: 1 }, { scale: 1.05, duration: 0.1, ease: "power2.out", yoyo: true, repeat: 1 }, T_TOAST);
+      tl.fromTo("#toast", { y: -200 }, { y: 0, duration: 0.4, ease: "back.out(1.5)" }, T_TOAST);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

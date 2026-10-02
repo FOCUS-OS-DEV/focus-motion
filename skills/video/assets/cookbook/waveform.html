@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: waveform
+      What    A row of bars that pulses like a voice, with a play head that runs left to right, a counter, and a
+              play button whose rings breathe with the sound.
+      How     Each bar has a seeded size limit and two seeded phases. Its height at time t is a sum of three sine
+              waves, so it looks irregular but is the same on every render. Bars the play head has passed take the
+              accent colour, and the bars under the head swell a little.
+      Change  Colours in :root. BARS, the wave box (X0, X1, MID, TALL), the head's range, the three speeds in level().
+      Traps   The head and the fill run left to right even in a Hebrew video, like every player. The heights here
+              are invented: they suit a design or a mockup, not a claim that this is the real recording. Do not
+              rebuild the bars inside the timeline loop: build once, set height and top in draw(t).
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 900px; }
+      #title { position: absolute; left: 80px; right: 80px; top: 400px; text-align: center; white-space: nowrap; line-height: 1;
+               font-size: 132px; font-weight: 800; color: var(--ink); }
+      .bar { position: absolute; border-radius: 99px; }
+      #head { position: absolute; left: -4px; top: 600px; width: 8px; height: 600px; border-radius: 4px; background: var(--ink); }
+      #head::before { content: ""; position: absolute; left: -14px; top: -18px; width: 36px; height: 36px; border-radius: 50%; background: var(--ink); }
+      .time { position: absolute; top: 1220px; line-height: 1; font-size: 64px; font-weight: 600; font-variant-numeric: tabular-nums;
+              color: color-mix(in srgb, var(--ink) 60%, transparent); }
+      #now { left: 110px; color: var(--ink); }
+      #total { right: 110px; }
+      .ring { position: absolute; left: 430px; top: 1320px; width: 220px; height: 220px; border-radius: 50%; border: 6px solid var(--accent); }
+      #play { position: absolute; left: 430px; top: 1320px; width: 220px; height: 220px; border-radius: 50%; background: var(--accent); }
+      #play::before, #play::after { content: ""; position: absolute; top: 66px; width: 26px; height: 88px; border-radius: 9px; background: var(--ink); }
+      #play::before { left: 72px; }
+      #play::after { left: 122px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="title" dir="rtl">ההקלטה שלכם</div>
+        <div id="bars"></div>
+        <div id="head"></div>
+        <div class="time" id="now" dir="ltr">0:00</div>
+        <div class="time" id="total" dir="ltr">0:04</div>
+        <div class="ring" id="ring1"></div>
+        <div class="ring" id="ring2"></div>
+        <div id="play"></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same wave on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(5);
+
+      // ---- restyle here
+      const DUR = 4, BARS = 34;
+      const X0 = 110, X1 = 970, MID = 900, TALL = 440;      // the wave box: left, right, centre line, tallest bar
+      const HEAD_FROM = 0.05, HEAD_TO = 0.95;               // where the play head starts and ends, as a share of the box
+
+      const host = document.getElementById("bars"), pitch = (X1 - X0) / BARS, thick = pitch * 0.56;
+      const bars = Array.from({ length: BARS }, (_, i) => {
+        const el = document.createElement("div");
+        el.className = "bar";
+        el.style.left = (X0 + pitch * (i + 0.5) - thick / 2).toFixed(1) + "px";
+        el.style.width = thick.toFixed(1) + "px";
+        host.appendChild(el);
+        // limit: an arch over the row (quiet ends, loud middle) times a seeded share, so no two bars match
+        return { el, x: X0 + pitch * (i + 0.5), limit: (0.4 + 0.6 * Math.sin(Math.PI * (i + 0.5) / BARS)) * (0.65 + 0.35 * rnd()), p1: 6.28 * rnd(), p2: 6.28 * rnd() };
+      });
+      // 0..1 for bar i at time t: three sine waves of different speeds, shifted per bar
+      const level = (b, i, t) => b.limit * (0.25 + 0.75 * Math.abs(0.55 * Math.sin(6.2 * t + b.p1) + 0.3 * Math.sin(9.4 * t - i * 0.5 + b.p2) + 0.15 * Math.sin(14.8 * t + i * 1.7)));
+
+      const head = document.getElementById("head"), now = document.getElementById("now");
+      const ring1 = document.getElementById("ring1"), ring2 = document.getElementById("ring2");
+      function draw(t) {
+        const xh = X0 + (X1 - X0) * (HEAD_FROM + (HEAD_TO - HEAD_FROM) * t / DUR);
+        bars.forEach((b, i) => {
+          const near = Math.exp(-Math.pow((b.x - xh) / 70, 2));                    // 1 under the head, 0 far from it
+          const hgt = Math.max(thick, TALL * level(b, i, t) * (1 + 0.35 * near));
+          b.el.style.top = (MID - hgt / 2).toFixed(1) + "px";
+          b.el.style.height = hgt.toFixed(1) + "px";
+          b.el.style.background = b.x <= xh ? "var(--accent)" : "color-mix(in srgb, var(--ink) 24%, transparent)";
+        });
+        head.style.transform = `translateX(${xh.toFixed(1)}px)`;
+        now.textContent = "0:0" + Math.floor(t);
+        const loud = 0.5 + 0.5 * Math.sin(3.1 * t + 0.7);                          // the button's rings follow the sound
+        ring1.style.transform = `scale(${(1.08 + 0.2 * loud).toFixed(3)})`;
+        ring1.style.opacity = (0.55 - 0.25 * loud).toFixed(3);
+        ring2.style.transform = `scale(${(1.16 + 0.4 * (1 - loud)).toFixed(3)})`;
+        ring2.style.opacity = (0.3 * loud).toFixed(3);
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#title", { y: 40, opacity: 0.6 }, { y: 0, opacity: 1, duration: 0.28, ease: "back.out(1.6)" }, 0);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

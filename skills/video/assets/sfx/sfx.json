@@ -1,0 +1,21 @@
+{
+  "about": "Sound effects synthesized in code by Focus AI Academy. 48 kHz. Used by scripts/mix.mjs.",
+  "fields": "preroll: seconds from the start of the file to the moment that lands on the cue. level: the gain that puts the sound at its place in the mix. field: centre (stays in the middle), side (alternates right and left at pan), sweep (moves across the field; every second use is mirrored; to = the side where the motion in the file ends). mirror: a ready mirrored copy of the file.",
+  "sampleRate": 48000,
+  "gain": 1.25,
+  "sounds": {
+    "hit": {"file": "hit.wav", "preroll": 0.0, "level": 0.65021, "field": "centre", "seconds": 1.05, "what": "a short punch: a crack over a low thump"},
+    "impact": {"file": "impact.wav", "preroll": 0.0, "level": 0.76171, "field": "centre", "seconds": 2.5, "what": "a big deep boom with a long tail"},
+    "whoosh": {"file": "whoosh.wav", "mirror": "whoosh-rl.wav", "preroll": 0.385, "level": 0.33175, "field": "sweep", "to": "right", "seconds": 0.7, "what": "a rush of air that peaks on the cue"},
+    "pop": {"file": "pop.wav", "preroll": 0.0, "level": 0.31417, "field": "side", "pan": 0.4, "seconds": 0.12, "what": "a small round blip"},
+    "tick": {"file": "tick.wav", "preroll": 0.0, "level": 0.14811, "field": "side", "pan": 0.4, "seconds": 0.05, "what": "a tiny high tick"},
+    "click": {"file": "click.wav", "preroll": 0.0, "level": 0.27489, "field": "side", "pan": 0.4, "seconds": 0.06, "what": "a double click, like a mouse button"},
+    "key": {"file": "key.wav", "preroll": 0.0, "level": 0.14811, "field": "side", "pan": 0.4, "seconds": 0.07, "what": "one keyboard key"},
+    "glitch": {"file": "glitch.wav", "preroll": 0.0, "level": 0.28491, "field": "sweep", "to": "left", "seconds": 0.22, "what": "a digital stutter"},
+    "shatter": {"file": "shatter.wav", "preroll": 0.0, "level": 0.6286, "field": "sweep", "to": "left", "seconds": 2.1, "what": "glass breaking"},
+    "rise": {"file": "rise.wav", "preroll": 0.9, "level": 0.29571, "field": "sweep", "to": "right", "seconds": 0.9, "what": "a riser that climbs into the cue and stops on it"},
+    "ding": {"file": "ding.wav", "preroll": 0.0, "level": 0.20196, "field": "side", "pan": 0.4, "seconds": 2.6, "what": "a bright bell"},
+    "sparkle": {"file": "sparkle.wav", "preroll": 0.0, "level": 0.19203, "field": "sweep", "to": "left", "seconds": 1.7, "what": "a glitter of small chimes"},
+    "sub": {"file": "sub.wav", "preroll": 0.0, "level": 0.61388, "field": "centre", "seconds": 1.4, "what": "a low bass drop, felt more than heard"}
+  }
+}

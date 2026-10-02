@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: cursor-click
+      What    A mouse pointer travels across the frame, slows down on a button and presses it. The button answers:
+              it gives under the press, a ripple spreads from the tip, and it turns into its done state.
+      How     The pointer's tip is the origin of its element, so the numbers you give it are the point it clicks.
+              It travels on two tweens with different eases (x fast then slow, y smooth), which bends the path into
+              a curve. The press is a quick shrink and a springy return, and the button and the ripple start on the
+              same frame.
+      Change  Colours in :root. TIP (where it clicks), START, T_CLICK, the two labels of the button, the form fields.
+      Traps   Aim beside a Hebrew label, never at the middle of a word: the pointer would cover it. The pointer
+              arrives a beat before the press, so the eye finds it first. The ripple sits under the pointer and
+              over the button. After the click the pointer drifts away instead of vanishing on the same frame.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 960px; }
+      #glow { position: absolute; left: 540px; top: 1000px; width: 1400px; height: 1200px; margin: -600px 0 0 -700px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 62%); }
+      #card { position: absolute; left: 120px; top: 560px; width: 840px; height: 760px; border-radius: 56px; background: var(--ink); color: var(--bg);
+              box-shadow: 0 60px 120px rgba(0, 0, 0, 0.55); }
+      #card h2 { position: absolute; right: 64px; top: 60px; font-size: 64px; font-weight: 800; line-height: 1.1; white-space: nowrap; }
+      .field { position: absolute; left: 60px; right: 60px; height: 140px; border-radius: 30px; background: #fff; box-shadow: 0 6px 16px rgba(15, 18, 22, 0.07); }
+      .field span { position: absolute; right: 36px; top: 22px; font-size: 36px; font-weight: 600; line-height: 1.2; color: color-mix(in srgb, var(--bg) 50%, transparent); }
+      .field b { position: absolute; right: 36px; top: 68px; font-size: 48px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+      #btn { position: absolute; left: 60px; right: 60px; top: 560px; height: 150px; }
+      #press { position: absolute; inset: 0; border-radius: 75px; background: var(--accent); box-shadow: 0 18px 40px color-mix(in srgb, var(--accent) 40%, transparent); }
+      .lbl { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 24px;
+             font-size: 62px; font-weight: 800; line-height: 1; white-space: nowrap; color: var(--bg); }
+      #done { opacity: 0; }
+      #done svg { width: 64px; height: 64px; overflow: visible; }
+      #tick { fill: none; stroke: var(--bg); stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+      .rip { position: absolute; left: -120px; top: -120px; width: 240px; height: 240px; border-radius: 50%; border: 10px solid var(--ink); opacity: 0; }
+      #rip2 { border-width: 6px; }
+      /* The tip of the pointer is the origin of #pointer: x and y are the point it touches. */
+      #pointer { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.5)); }
+      #pointer svg { position: absolute; left: -6px; top: -6px; width: 92px; height: 134px; overflow: visible; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="card" dir="rtl">
+          <h2>פרויקט חדש</h2>
+          <div class="field" style="top: 180px"><span>שם</span><b>סרטון השקה</b></div>
+          <div class="field" style="top: 360px"><span>אורך</span><b>שלושים שניות</b></div>
+          <div id="btn">
+            <div id="press">
+              <div class="lbl" id="save">שמירה</div>
+              <div class="lbl" id="done"><svg viewBox="0 0 24 24"><path id="tick" pathLength="1" stroke-dasharray="1 1" stroke-dashoffset="1" d="M4 12.5 L10 18.5 L20.5 6.5" /></svg>נשמר</div>
+            </div>
+          </div>
+        </div>
+        <div class="rip" id="rip1"></div>
+        <div class="rip" id="rip2"></div>
+        <div id="pointer"><svg viewBox="-4 -4 66 96"><path d="M0 0 L0 74 L18 58 L30 86 L44 80 L32 53 L56 53 Z" fill="#ffffff" stroke="#0f1216" stroke-width="5" stroke-linejoin="round" /></svg></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3;
+      const TIP = { x: 730, y: 1196 };     // the point it clicks: on the button, beside the label
+      const START = { x: 960, y: 1700 };   // where the pointer is on frame 0 (inside the frame, already moving)
+      const T_CLICK = 1.1;                 // the press, on the beat
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.04, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#card", { y: 50 }, { y: 0, duration: 0.7, ease: "expo.out" }, 0);
+
+      // ---- the travel: two eases make a curve; it arrives a beat early and settles on the tip
+      const ARRIVE = T_CLICK - 0.3;
+      tl.fromTo("#pointer", { x: START.x }, { x: TIP.x - 12, duration: ARRIVE, ease: "power2.out" }, 0);
+      later("#pointer", { y: START.y }, { y: TIP.y + 10, duration: ARRIVE, ease: "sine.inOut" }, 0);
+      later("#pointer", { rotation: -14 }, { rotation: 0, duration: ARRIVE, ease: "power2.out" }, 0);
+      later("#pointer", { x: TIP.x - 12, y: TIP.y + 10 }, { x: TIP.x, y: TIP.y, duration: 0.14, ease: "sine.inOut" }, ARRIVE + 0.1);
+
+      // ---- the press: the pointer and the button give on the same frame, the ripple starts at the tip
+      later("#pointer", { scale: 1 }, { scale: 0.84, duration: 0.06, ease: "power2.out" }, T_CLICK);
+      later("#pointer", { scale: 0.84 }, { scale: 1, duration: 0.2, ease: "back.out(2)" }, T_CLICK + 0.065);
+      tl.fromTo("#press", { scale: 1, y: 0 }, { scale: 0.95, y: 6, duration: 0.06, ease: "power2.in" }, T_CLICK);
+      later("#press", { scale: 0.95, y: 6 }, { scale: 1, y: 0, duration: 0.3, ease: "back.out(2.5)" }, T_CLICK + 0.06);
+      [["#rip1", 0, 2.8, 0.9], ["#rip2", 0.1, 2.1, 0.8]].forEach(([sel, d, s, dur]) =>
+        tl.fromTo(sel, { x: TIP.x, y: TIP.y, scale: 0.15, opacity: 0.95 }, { x: TIP.x, y: TIP.y, scale: s, opacity: 0, duration: dur, ease: "power2.out", immediateRender: false }, T_CLICK + d));
+
+      // ---- the answer: the button turns into its done state, the check draws
+      const T_DONE = T_CLICK + 0.08;
+      later("#press", { backgroundColor: "#ff6a3d" }, { backgroundColor: "#ffc247", duration: 0.14, ease: "none" }, T_DONE);
+      tl.fromTo("#save", { opacity: 1, y: 0 }, { opacity: 0, y: -24, duration: 0.08, ease: "power1.in", immediateRender: false }, T_DONE);
+      tl.fromTo("#done", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.2, ease: "back.out(2)", immediateRender: false }, T_DONE + 0.04);
+      tl.fromTo("#tick", { attr: { "stroke-dashoffset": 1 } }, { attr: { "stroke-dashoffset": 0 }, duration: 0.24, ease: "power2.out", immediateRender: false }, T_DONE + 0.1);
+
+      // ---- after: the pointer drifts off the button, the card keeps a slow push
+      later("#pointer", { x: TIP.x, y: TIP.y }, { x: TIP.x + 80, y: TIP.y + 110, duration: 0.6, ease: "sine.inOut" }, T_CLICK + 0.5);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

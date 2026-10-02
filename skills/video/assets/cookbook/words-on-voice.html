@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: words-on-voice
+      What    Every spoken word appears on the frame it is said. Each word enters in its own way, and a finished
+              phrase leaves fast to make room for the next one.
+      How     WORDS lists each word element with the time its word starts (audio/words.json, minus the start of the
+              scene) and the name of an entrance. ENTER holds five entrances that are safe for Hebrew. A phrase is a
+              "screen": its rows leave together 0.15 s before the next phrase starts.
+      Change  Colours in :root. The rows (text, size, top). The times and entrances in WORDS, the screens in SCREENS.
+      Traps   A word is one whole element: never reveal Hebrew through a mask or a wipe. Give neighbouring words
+              different entrances, and keep "land" for one word in three. Start a frame early (LEAD), so the word is
+              already arriving on its own frame. The first word is caught mid entrance, so frame 0 is not empty.
+              Letter by letter runs right to left, which is the order the letters sit in the page for Hebrew.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 800px; }
+      #glow { position: absolute; left: 540px; top: 800px; width: 1500px; height: 1300px; margin: -650px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 64%); }
+      /* One row per line of text: it never wraps. The perspective is for the 3D turn. */
+      .row { position: absolute; left: 80px; right: 80px; text-align: center; white-space: nowrap; line-height: 1;
+             font-weight: 900; color: var(--ink); perspective: 1400px; }
+      .w { display: inline-block; opacity: 0; }
+      .w .lt { display: inline-block; opacity: 0; }
+      #a1 { top: 520px; font-size: 170px; font-weight: 800; }
+      #a2 { top: 720px; font-size: 300px; }
+      #b1 { top: 500px; font-size: 330px; color: var(--accent); }
+      #b2 { top: 860px; font-size: 136px; font-weight: 800; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.2" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div class="row screenA" id="a1" dir="rtl"><span class="w" id="w1">כל</span> <span class="w" id="w2">מילה</span></div>
+        <div class="row screenA" id="a2" dir="rtl"><span class="w" id="w3">נכנסת</span></div>
+        <div class="row screenB" id="b1" dir="rtl"><span class="w" id="w4">בדיוק</span></div>
+        <div class="row screenB" id="b2" dir="rtl"><span class="w" id="w5">כשהיא</span> <span class="w" id="w6">נאמרת</span></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.2, FPS = 30;
+      const LEAD = 1 / FPS;            // every entrance starts one frame before its word
+      const WORDS = [                  // [element, the second its word starts in this scene, entrance]
+        ["#w1", 0.00, "open"], ["#w2", 0.30, "slide"], ["#w3", 0.68, "turn"],
+        ["#w4", 1.36, "land"], ["#w5", 1.86, "rise"], ["#w6", 2.20, "letters"],
+      ];
+      const SCREENS = [[".screenA", 1.36]];   // [rows of a phrase, the time the next phrase starts]
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      // Five entrances. Each one moves a whole word (or whole letters) and ends sharp at its resting place.
+      const ENTER = {
+        // the first word of the scene: already rising on frame 0
+        open: (el) => tl.fromTo(el, { opacity: 0.7, y: 18, filter: "blur(4px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.2, ease: "power2.out" }, 0),
+        // a short rise, from soft to sharp
+        rise: (el, t) => tl.fromTo(el, { opacity: 0, y: 44, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.24, ease: "power3.out" }, t),
+        // lands from slightly larger (1.3 at most)
+        land: (el, t) => tl.fromTo(el, { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.16, ease: "expo.out" }, t),
+        // a fast slide that starts inside the frame
+        slide: (el, t) => tl.fromTo(el, { opacity: 0, x: -170, filter: "blur(8px)" }, { opacity: 1, x: 0, filter: "blur(0px)", duration: 0.2, ease: "expo.out" }, t),
+        // turns up in 3D around its own baseline
+        turn: (el, t) => tl.fromTo(el, { opacity: 0, rotationX: 92, y: 30, transformOrigin: "50% 88%" }, { opacity: 1, rotationX: 0, y: 0, duration: 0.3, ease: "back.out(1.5)" }, t),
+        // letter by letter: the first letter in the page is the rightmost one, the first one read
+        letters: (el, t) => {
+          el.innerHTML = Array.from(el.textContent, (c) => '<span class="lt">' + c + "</span>").join("");
+          el.style.opacity = 1;
+          el.querySelectorAll(".lt").forEach((lt, i) =>
+            tl.fromTo(lt, { opacity: 0, y: 70, scale: 1.25 }, { opacity: 1, y: 0, scale: 1, duration: 0.16, ease: "back.out(2)" }, t + i * 0.03));
+        },
+      };
+      WORDS.forEach(([sel, at, kind]) => ENTER[kind](document.querySelector(sel), Math.max(0, at - LEAD)));
+
+      // A finished phrase leaves faster than it came, top row first.
+      SCREENS.forEach(([rows, next]) =>
+        tl.fromTo(rows, { opacity: 1, y: 0, filter: "blur(0px)" }, { opacity: 0, y: -80, filter: "blur(10px)", duration: 0.09, ease: "power2.in", stagger: 0.015 }, next - 0.15));
+
+      // The hold never freezes: one slow push on everything, and the light breathes.
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.9, opacity: 0.7 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+      later("#b1", { scale: 1 }, { scale: 1.04, duration: DUR - 1.6, ease: "sine.inOut" }, 1.6);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

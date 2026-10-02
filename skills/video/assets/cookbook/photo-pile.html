@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: photo-pile
+      What    A stack of photos bursts into a loose pile with depth: far photos are smaller and drift one way, near
+              ones are bigger and drift the other, while each picture moves slowly inside its frame. On the beat
+              the pile snaps into an ordered strip.
+      How     draw(t) gives every card a pose from three moments: the stack, its place in the pile (plus a drift
+              scaled by its depth, which reads as parallax) and its slot in the strip, blended by three eased
+              numbers. The slow move inside each frame (a Ken Burns) is a tween on the picture, under an
+              overflow-hidden frame, so the frame itself never grows.
+      Your scene provides
+              assets/photo-1.jpg to photo-6.jpg, about 360 x 480, cropped to the card's 3:4.
+      Change  Colours in :root. PHOTOS, the pile places (PILE: x, y, depth), the strip, the times, the words.
+      Traps   A Ken Burns may never show the edge of the picture: the shift stays under (scale - 1) / 2 of the size.
+              Real photos of real people need the user's permission. The strip is a timeline, so it reads left to
+              right like a player; the photos keep the order they had in the pile, so nothing crosses on the snap.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 1000px; }
+      #glow { position: absolute; left: 540px; top: 1000px; width: 1500px; height: 1500px; margin: -750px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(circle, color-mix(in srgb, var(--accent) 28%, transparent) 0%, transparent 62%); }
+      /* a card sits on 0,0 and is placed by its transform; the margins centre it on that point */
+      .card { position: absolute; left: 0; top: 0; width: 300px; height: 390px; margin: -195px 0 0 -150px; padding: 14px; border-radius: 16px;
+              background: var(--ink); box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5); }
+      .card .m { position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 6px; }
+      .card img { display: block; width: 100%; height: 100%; object-fit: cover; }
+      #line { position: absolute; left: 80px; right: 80px; top: 500px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 150px; font-weight: 900; color: var(--ink); opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.4" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div id="cards"></div>
+        <div id="line" dir="rtl">הרגעים שלכם</div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same pile on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(6);
+
+      // ---- restyle here
+      const DUR = 3.4;          // seconds, equal to data-duration on #root
+      const PHOTOS = [1, 2, 3, 4, 5, 6].map((n) => "assets/photo-" + n + ".jpg");
+      const STACK = [540, 1010];                       // where the stack waits on frame 0
+      const PILE = [[250, 760, 0.3], [800, 720, 0.2], [180, 1130, 0.7], [890, 1100, 0.6], [370, 1370, 1], [720, 1380, 0.9]];   // x, y, depth 0..1
+      const STRIP = { y: 1080, pitch: 158, scale: 0.48 };
+      const T_BURST = 0.3, T_SNAP = 1.95, T_LINE = 2.35;
+
+      const clamp = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+      const seg = (t, a, b) => clamp((t - a) / (b - a));
+      const expoOut = (k) => (k >= 1 ? 1 : 1 - Math.pow(2, -10 * k));
+      const sine = (k) => 0.5 - 0.5 * Math.cos(Math.PI * k);
+      const backOut = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : 1 + 2.4 * Math.pow(k - 1, 3) + 1.4 * Math.pow(k - 1, 2));
+      const mix = (a, b, k) => a + (b - a) * k;
+
+      const host = document.getElementById("cards");
+      const cards = PILE.map(([x, y, depth], i) => {
+        const el = document.createElement("div");
+        el.className = "card";
+        el.innerHTML = '<div class="m"><img src="' + PHOTOS[i] + '" alt="" /></div>';
+        el.style.zIndex = Math.round(depth * 10);                         // near cards on top
+        host.appendChild(el);
+        return { el, img: el.querySelector("img"), x, y, depth, r0: 16 * (rnd() - 0.5), rot: 22 * (rnd() - 0.5), delay: 0.04 * i };
+      });
+      // the strip keeps the pile's left to right order, so no card crosses another on the snap
+      cards.slice().sort((a, b) => a.x - b.x).forEach((c, j) => { c.sx = 540 + (j - (cards.length - 1) / 2) * STRIP.pitch; c.snap = T_SNAP + 0.04 * j; });
+
+      function draw(t) {
+        const breathe = 1 - 0.06 * Math.sin(Math.PI * seg(t, 0, T_BURST));       // the stack squeezes before it bursts
+        const drift = sine(seg(t, T_BURST + 0.5, T_SNAP));
+        for (const c of cards) {
+          const out = expoOut(seg(t, T_BURST + c.delay, T_BURST + c.delay + 0.6)), snap = backOut(seg(t, c.snap, c.snap + 0.42));
+          const scale = 0.62 + 0.4 * c.depth;                                      // far is small, near is big
+          const px = c.x - 90 * (c.depth - 0.5) * drift, py = c.y - 20 * (c.depth - 0.5) * drift;    // parallax: depth decides the drift
+          const x = mix(mix(STACK[0], px, out), c.sx, snap), y = mix(mix(STACK[1], py, out), STRIP.y, snap);
+          const s = mix(mix(0.8 * breathe, scale * (1 + 0.04 * drift * c.depth), out), STRIP.scale, snap);
+          const r = mix(mix(c.r0, c.rot + 3 * drift * (c.depth - 0.5), out), 0, snap);
+          c.el.style.transform = "translate(" + x.toFixed(1) + "px, " + y.toFixed(1) + "px) rotate(" + r.toFixed(2) + "deg) scale(" + s.toFixed(4) + ")";
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      // a slow move inside every frame, each toward its own side; the shift stays inside (scale - 1) / 2
+      cards.forEach((c, i) => {
+        const dx = (i % 2 ? 1 : -1) * 3;
+        tl.fromTo(c.img, { scale: 1.1, xPercent: -dx, yPercent: 1 }, { scale: 1.22, xPercent: dx, yPercent: -2, duration: DUR, ease: "none" }, 0);
+      });
+      tl.fromTo("#line", { y: 60, opacity: 0 }, { y: 0, opacity: 1, duration: 0.26, ease: "back.out(1.7)", immediateRender: false }, T_LINE);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

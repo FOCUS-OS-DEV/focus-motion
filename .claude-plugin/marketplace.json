@@ -1,0 +1,12 @@
+{
+  "name": "focus-ai-academy",
+  "owner": { "name": "Focus AI Academy", "url": "https://focusai.co.il" },
+  "description": "Plugins by Focus AI Academy",
+  "plugins": [
+    {
+      "name": "focus-motion",
+      "source": "./",
+      "description": "Direct, build and edit complete videos inside Claude Code, in Hebrew: motion videos, footage editing with captions, and a review page for notes on exact seconds."
+    }
+  ]
+}

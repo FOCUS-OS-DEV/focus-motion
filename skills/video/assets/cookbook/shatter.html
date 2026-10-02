@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: shatter
+      What    A card cracks for two frames, then breaks into pieces that fly out from the point of impact, tumble and
+              fall. The new word lands where the card was.
+      How     The card is cut by a seeded, jittered grid into triangles. Every piece is a full copy of the card, clipped
+              to its triangle, so together they rebuild the card exactly. draw(t) moves each piece on a closed-form
+              path: a push away from the impact that air drag slows down, plus gravity, plus a spin.
+      Change  Colours in :root. FACE (what the card shows), COLS and ROWS (how many pieces), IMPACT, T_HIT, GRAVITY,
+              DRAG, and the word that replaces it.
+      Traps   An intact copy sits on top until the crack frame: clipped neighbours leave hairline seams. Keep the
+              card simple, because it is drawn once per piece. Pieces fly behind the new word, never across it.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #shake, #cam { position: absolute; inset: 0; }
+      #cam { transform-origin: 540px 880px; }
+      #card { position: absolute; left: 160px; top: 650px; width: 760px; height: 460px; }
+      #pieces { position: absolute; inset: 0; perspective: 1200px; }
+      .piece, #whole { position: absolute; inset: 0; }
+      .face { position: absolute; inset: 0; border-radius: 44px; background: var(--ink); }
+      .face .title { position: absolute; left: 0; right: 0; top: 96px; text-align: center; white-space: nowrap; line-height: 1;
+                     font-size: 124px; font-weight: 800; color: var(--bg); }
+      .face .bar { position: absolute; right: 90px; height: 26px; border-radius: 13px; background: color-mix(in srgb, var(--bg) 16%, transparent); }
+      #flash { position: absolute; left: 480px; top: 900px; width: 900px; height: 900px; margin: -450px 0 0 -450px; border-radius: 50%; opacity: 0;
+               background: radial-gradient(circle, #fff 0%, color-mix(in srgb, var(--accent) 60%, transparent) 30%, transparent 66%); }
+      #next { position: absolute; left: 0; right: 0; top: 770px; text-align: center; white-space: nowrap; line-height: 1;
+              font-size: 190px; font-weight: 900; color: var(--ink); opacity: 0; }
+      #next b { font-weight: 900; color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3" data-width="1080" data-height="1920">
+      <div id="shake">
+        <div id="cam">
+          <div id="card"><div id="pieces"></div><div id="whole"></div></div>
+          <div id="flash"></div>
+          <div id="next" dir="rtl">דרך <b>חדשה</b></div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // Seeded random (mulberry32): the same break on every render. Never Math.random().
+      function mulberry32(a) { return function () { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+      const rnd = mulberry32(42);
+
+      // ---- restyle here
+      const DUR = 3, W = 760, H = 460, COLS = 6, ROWS = 5;
+      const T_CRACK = 0.93;            // two frames before the hit the pieces part along the cracks
+      const T_HIT = 1.0;               // the break
+      const T_WORD = T_HIT + 0.34;     // the new word, once the pieces have cleared
+      const IMPACT = [0.42 * W, 0.56 * H], GRAVITY = 3200, DRAG = 1.6;
+      const FACE = '<div class="face" dir="rtl"><div class="title">הדרך הישנה</div>' +
+                   '<div class="bar" style="top: 286px; width: 420px"></div><div class="bar" style="top: 340px; width: 280px"></div></div>';
+
+      // A jittered grid: the outer points stay on the edge, the inner ones move up to a third of a cell.
+      const pt = [];
+      for (let r = 0; r <= ROWS; r++) for (let c = 0; c <= COLS; c++) {
+        const jx = c === 0 || c === COLS ? 0 : 0.66 * (rnd() - 0.5), jy = r === 0 || r === ROWS ? 0 : 0.66 * (rnd() - 0.5);
+        pt.push([(c + jx) * W / COLS, (r + jy) * H / ROWS]);
+      }
+      const at = (c, r) => pt[r * (COLS + 1) + c];
+      const tris = [];
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+        const a = at(c, r), b = at(c + 1, r), d = at(c, r + 1), e = at(c + 1, r + 1);
+        if (rnd() < 0.5) tris.push([a, b, e], [a, e, d]); else tris.push([a, b, d], [b, e, d]);
+      }
+
+      document.getElementById("whole").innerHTML = FACE;
+      const host = document.getElementById("pieces");
+      const pieces = tris.map((tri) => {
+        const el = document.createElement("div");
+        el.className = "piece";
+        el.innerHTML = FACE;
+        const cx = (tri[0][0] + tri[1][0] + tri[2][0]) / 3, cy = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
+        el.style.clipPath = "polygon(" + tri.map((p) => p[0].toFixed(1) + "px " + p[1].toFixed(1) + "px").join(", ") + ")";
+        el.style.transformOrigin = cx.toFixed(1) + "px " + cy.toFixed(1) + "px";
+        host.appendChild(el);
+        const dx = cx - IMPACT[0], dy = cy - IMPACT[1], dist = Math.hypot(dx, dy) || 1;
+        const ang = Math.atan2(dy, dx) + 0.6 * (rnd() - 0.5), v = 700 + 1100 * rnd();
+        return { el, nx: dx / dist, ny: dy / dist, delay: dist / 6000,              // the nearest pieces leave first
+                 vx: Math.cos(ang) * v, vy: Math.sin(ang) * v - 300, vz: -200 + 800 * rnd(),
+                 wx: 500 * (rnd() - 0.5), wy: 500 * (rnd() - 0.5), wz: 360 * (rnd() - 0.5) };
+      });
+      const whole = document.getElementById("whole");
+
+      function draw(t) {
+        whole.style.visibility = t < T_CRACK ? "visible" : "hidden";
+        for (const p of pieces) {
+          const tau = t - T_HIT - p.delay;
+          if (tau <= 0) {                                                 // at rest, or parted by 5 px on the crack frames
+            const k = t >= T_CRACK ? 5 : 0;
+            p.el.style.transform = `translate(${(p.nx * k).toFixed(1)}px, ${(p.ny * k).toFixed(1)}px)`;
+            continue;
+          }
+          const s = (1 - Math.exp(-DRAG * tau)) / DRAG;                   // distance per unit of launch speed, under drag
+          p.el.style.transform = `translate3d(${(p.vx * s).toFixed(1)}px, ${(p.vy * s + 0.5 * GRAVITY * tau * tau).toFixed(1)}px, ${(p.vz * s).toFixed(1)}px) ` +
+            `rotateX(${(p.wx * tau).toFixed(1)}deg) rotateY(${(p.wy * tau).toFixed(1)}deg) rotate(${(p.wz * tau).toFixed(1)}deg)`;
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      // The clock: GSAP writes clock.t on every frame it is asked for, and the setter redraws.
+      const clock = { _t: 0, get t() { return this._t; }, set t(v) { this._t = v; draw(v); } };
+      tl.fromTo(clock, { t: 0 }, { t: DUR, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.06, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#card", { rotation: -2.5, y: 10 }, { rotation: -1, y: -6, duration: T_HIT, ease: "sine.inOut" }, 0);
+      // the hit: two frames of shake and one burst of light on the impact point
+      tl.set("#shake", { x: 16, y: -11 }, T_HIT);
+      tl.set("#shake", { x: -11, y: 8 }, T_HIT + 0.034);
+      tl.set("#shake", { x: 0, y: 0 }, T_HIT + 0.067);
+      tl.fromTo("#flash", { opacity: 0.7, scale: 0.5 }, { opacity: 0, scale: 1.3, duration: 0.24, ease: "power2.out", immediateRender: false }, T_HIT);
+      // the new word lands from slightly larger and keeps a slow push to the last frame
+      tl.fromTo("#next", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.28, ease: "back.out(2.2)", immediateRender: false }, T_WORD);
+      tl.fromTo("#next", { scale: 1 }, { scale: 1.04, duration: DUR - T_WORD - 0.28, ease: "none", immediateRender: false }, T_WORD + 0.28);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

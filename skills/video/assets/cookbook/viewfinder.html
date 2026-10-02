@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: viewfinder
+      What    A camera screen laid over footage: frame corners, a thirds grid, a blinking record dot, a timecode that
+              counts every frame, and a focus box that hunts for the subject and then locks on it.
+      How     The overlay is a fixed layer on top; only the footage under it pushes in, the way a camera screen
+              stays still while the picture changes. The timecode is one span per character with a fixed width, so
+              the digits do not jitter as they count. The lock is a snap in size, a colour change and one pulse.
+      Your scene provides
+              assets/plate.mp4: the shot, muted H.264, standard colour. FACE is where the subject is in the frame.
+      Change  Colours in :root. The window (#vf), FACE, T_LOCK, the timecode start (TC0, in frames), the label.
+      Traps   The blink is a small dot, a few times a second at most: never blink the whole frame. The overlay text
+              stays inside the safe zone, since it reads as part of the picture. The pivot of the footage push is
+              the face, so the focus box stays on it.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root {
+        --w: 1080px; --h: 1920px;
+        --safe-top: 250px; --safe-bottom: 350px; --safe-left: 80px; --safe-right: 80px; --safe-right-low: 140px;
+        --stage-bg: #0f1216;
+        /* restyle: the colours of this technique */
+        --bg: var(--stage-bg); --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: var(--w); height: var(--h); overflow: hidden; background: var(--stage-bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #shot { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; object-fit: cover; transform-origin: 540px 820px; }
+      /* the camera screen: the window sits on the safe zone */
+      #vf { position: absolute; left: 80px; top: 250px; width: 920px; height: 1310px; color: var(--ink);
+            filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45)); }
+      .third { position: absolute; background: color-mix(in srgb, var(--ink) 35%, transparent); }
+      .corner { position: absolute; width: 110px; height: 110px; border: 0 solid var(--ink); }
+      #c0 { left: 0; top: 0; border-width: 12px 0 0 12px; border-top-left-radius: 26px; }
+      #c1 { right: 0; top: 0; border-width: 12px 12px 0 0; border-top-right-radius: 26px; }
+      #c2 { left: 0; bottom: 0; border-width: 0 0 12px 12px; border-bottom-left-radius: 26px; }
+      #c3 { right: 0; bottom: 0; border-width: 0 12px 12px 0; border-bottom-right-radius: 26px; }
+      #rec { position: absolute; left: 44px; top: 44px; display: flex; align-items: center; gap: 16px; font-size: 52px; font-weight: 700; line-height: 1; }
+      #dot { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); }
+      #tc { position: absolute; right: 44px; top: 44px; font-size: 50px; font-weight: 600; line-height: 1; }
+      #tc span { display: inline-block; width: 30px; text-align: center; }
+      #tc span.colon { width: 16px; }
+      /* the focus box: four corners around FACE, placed by the script */
+      #focus { position: absolute; left: 0; top: 0; width: 420px; height: 420px; margin: -210px 0 0 -210px; }
+      #focus i { position: absolute; width: 90px; height: 90px; border: 0 solid var(--ink); }
+      #focus i:nth-child(1) { left: 0; top: 0; border-width: 8px 0 0 8px; }
+      #focus i:nth-child(2) { right: 0; top: 0; border-width: 8px 8px 0 0; }
+      #focus i:nth-child(3) { left: 0; bottom: 0; border-width: 0 0 8px 8px; }
+      #focus i:nth-child(4) { right: 0; bottom: 0; border-width: 0 8px 8px 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3" data-width="1080" data-height="1920">
+      <video id="shot" class="clip" src="assets/plate.mp4" muted playsinline data-start="0" data-duration="3" data-media-start="0"></video>
+      <div id="vf">
+        <div class="third" style="left: 33.33%; top: 0; width: 3px; height: 100%"></div>
+        <div class="third" style="left: 66.66%; top: 0; width: 3px; height: 100%"></div>
+        <div class="third" style="left: 0; top: 33.33%; width: 100%; height: 3px"></div>
+        <div class="third" style="left: 0; top: 66.66%; width: 100%; height: 3px"></div>
+        <div class="corner" id="c0"></div><div class="corner" id="c1"></div><div class="corner" id="c2"></div><div class="corner" id="c3"></div>
+        <div id="rec" dir="ltr"><i id="dot"></i><span>REC</span></div>
+        <div id="tc" dir="ltr"></div>
+        <div id="focus"><i></i><i></i><i></i><i></i></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      const DUR = 3, FPS = 30;        // DUR equals data-duration on #root
+      const FACE = [540, 820];        // the subject's face, in frame px
+      const T_LOCK = 1.0;             // the focus finds it
+      const TC0 = 12 * FPS + 8;       // the timecode on frame 0: 00:00:12:08
+
+      // the timecode: eleven fixed-width characters, rewritten on every frame
+      const tc = document.getElementById("tc"), chars = [];
+      for (let i = 0; i < 11; i++) { const s = document.createElement("span"); if (i % 3 === 2) s.className = "colon"; tc.appendChild(s); chars.push(s); }
+      const two = (n) => String(n).padStart(2, "0");
+      const showFrame = (f) => { const s = "00:" + two(Math.floor(f / (60 * FPS)) % 60) + ":" + two(Math.floor(f / FPS) % 60) + ":" + two(f % FPS); for (let i = 0; i < 11; i++) chars[i].textContent = s[i]; };
+      const frames = { _f: 0, get f() { return this._f; }, set f(v) { this._f = v; showFrame(TC0 + Math.floor(v + 1e-6)); } };
+      // the focus box is placed in the window's own px
+      gsap.set("#focus", { x: FACE[0] - 80, y: FACE[1] - 250 });
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+      tl.fromTo(frames, { f: 0 }, { f: DUR * FPS, duration: DUR, ease: "none" }, 0);
+      // only the footage moves: a slow push around the face
+      tl.fromTo("#shot", { scale: 1 }, { scale: 1.06, duration: DUR, ease: "none" }, 0);
+      // the record dot blinks twice a second, a counted number of times
+      for (let t = 0.5, on = false; t < DUR; t += 0.5, on = !on) tl.set("#dot", { opacity: on ? 1 : 0.15 }, t);
+      // the focus hunts: too big and off to one side, it swings across, then snaps tight on the face
+      tl.fromTo("#focus", { scale: 1.45, xPercent: 18, yPercent: -10 }, { scale: 1.2, xPercent: -10, yPercent: 6, duration: T_LOCK - 0.2, ease: "sine.inOut" }, 0);
+      later("#focus", { scale: 1.2, xPercent: -10, yPercent: 6 }, { scale: 0.92, xPercent: 0, yPercent: 0, duration: 0.2, ease: "power3.in" }, T_LOCK - 0.2);
+      later("#focus", { scale: 0.92 }, { scale: 1, duration: 0.3, ease: "back.out(3)" }, T_LOCK);
+      const css = getComputedStyle(document.documentElement), ink = css.getPropertyValue("--ink").trim(), lock = css.getPropertyValue("--accent-2").trim();
+      later("#focus i", { borderColor: ink }, { borderColor: lock, duration: 0.06, ease: "none" }, T_LOCK);
+      later("#focus", { opacity: 1 }, { opacity: 0.35, duration: 0.07, ease: "none", yoyo: true, repeat: 1 }, T_LOCK + 0.1);
+      later("#focus", { scale: 1 }, { scale: 1.03, duration: DUR - T_LOCK - 0.3, ease: "sine.inOut" }, T_LOCK + 0.3);
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

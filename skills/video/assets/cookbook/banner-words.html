@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="he">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="assets/gsap.min.js"></script>
+    <!--
+      Cookbook: banner-words
+      What    A banner takes its words one by one as they are spoken and answers each one with a small pulse. Then a
+              pill arrives for each of the next words, one under the other.
+      How     The banner holds all its words from the start; the ones not yet spoken are invisible but keep their
+              place, so the banner has its final size and nothing jumps. Each word gets its own entrance on its own
+              time. A pill is one whole element that slides in a short way and settles with a small tilt.
+      Change  Colours in :root. The words, BANNER and PILLS (element, time, side), the sizes and the tilts.
+      Traps   Do not grow the banner by opening it over the text: that is a wipe, and Hebrew breaks in a wipe. A pill
+              starts its slide inside the frame with the opacity rising, so no letter is cut by the frame edge. The
+              first word is in the banner on frame 0. Pills stack in the order they are spoken, top to bottom.
+    -->
+    <style>
+      /* fonts:start */
+      @font-face { font-family: "Rubik"; src: url("assets/Rubik-VF.ttf") format("truetype"); font-weight: 300 900; }
+      /* fonts:end */
+      :root { --bg: #0f1216; --ink: #f5f2ea; --accent: #ff6a3d; --accent-2: #ffc247; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: "Rubik", sans-serif; }
+      #cam { position: absolute; inset: 0; transform-origin: 540px 860px; }
+      #glow { position: absolute; left: 540px; top: 620px; width: 1500px; height: 1100px; margin: -550px 0 0 -750px; border-radius: 50%;
+              background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 26%, transparent) 0%, transparent 64%); }
+      /* The banner is as wide as its words. */
+      .center { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+      #bannerRow { top: 500px; }
+      #banner { padding: 32px 52px 44px; border-radius: 58px; background: var(--accent); white-space: nowrap; line-height: 1;
+                font-size: 98px; font-weight: 900; color: var(--bg);
+                box-shadow: 0 18px 0 color-mix(in srgb, var(--accent) 55%, #000), 0 50px 90px rgba(0, 0, 0, 0.5); }
+      #banner .w { display: inline-block; opacity: 0; }
+      .pill { padding: 24px 64px 36px; border-radius: 999px; white-space: nowrap; line-height: 1; opacity: 0;
+              font-size: 104px; font-weight: 800; color: var(--ink);
+              background: color-mix(in srgb, var(--ink) 9%, var(--bg)); border: 5px solid var(--accent-2); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.6" data-width="1080" data-height="1920">
+      <div id="cam">
+        <div id="glow"></div>
+        <div class="center" id="bannerRow">
+          <div id="banner" dir="rtl"><span class="w" id="b1">הכול</span> <span class="w" id="b2">במקום</span> <span class="w" id="b3">אחד</span></div>
+        </div>
+        <div class="center" style="top: 840px"><div class="pill" id="p1" dir="rtl">תכנון</div></div>
+        <div class="center" style="top: 1055px"><div class="pill" id="p2" dir="rtl">עריכה</div></div>
+        <div class="center" style="top: 1270px"><div class="pill" id="p3" dir="rtl">פרסום</div></div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+
+      // ---- restyle here
+      const DUR = 3.6;
+      const LEAD = 1 / 30;      // every entrance starts one frame before its word
+      const BANNER = [["#b1", 0], ["#b2", 0.42], ["#b3", 0.84]];                // [word, the second it is spoken]
+      const PILLS = [["#p1", 1.5, 1, -3], ["#p2", 1.95, -1, 2], ["#p3", 2.4, 1, -2]];   // [pill, time, side it comes from, resting tilt]
+
+      const tl = gsap.timeline({ paused: true });
+      const later = (sel, from, to, at) => tl.fromTo(sel, from, { ...to, immediateRender: false }, at);
+
+      tl.fromTo("#cam", { scale: 1 }, { scale: 1.05, duration: DUR, ease: "none" }, 0);
+      tl.fromTo("#glow", { scale: 0.85, opacity: 0.6 }, { scale: 1.1, opacity: 1, duration: DUR, ease: "sine.inOut" }, 0);
+
+      // The banner is caught mid slam on frame 0, with its first word already in it.
+      tl.fromTo("#banner", { scale: 1.16, rotation: -3 }, { scale: 1, rotation: 0, duration: 0.3, ease: "back.out(2)" }, 0);
+      BANNER.forEach(([sel, word], i) => {
+        if (i === 0) { tl.set(sel, { opacity: 1 }, 0); return; }
+        const at = word - LEAD;
+        // odd words rise, even words land from larger: neighbours never enter the same way
+        if (i % 2) tl.fromTo(sel, { opacity: 0, y: 56 }, { opacity: 1, y: 0, duration: 0.2, ease: "back.out(2)" }, at);
+        else tl.fromTo(sel, { opacity: 0, scale: 1.3 }, { opacity: 1, scale: 1, duration: 0.16, ease: "expo.out" }, at);
+        // the banner answers the word
+        later("#banner", { scale: 1 }, { scale: 1.05, duration: 0.07, ease: "power2.out" }, at);
+        later("#banner", { scale: 1.05 }, { scale: 1, duration: 0.22, ease: "back.out(2.5)" }, at + 0.07);
+      });
+      later("#bannerRow", { y: 0 }, { y: -10, duration: DUR - 1.1, ease: "sine.inOut" }, 1.1);
+
+      // A pill per word: a short fast slide from its side, a small overshoot, a tilt at rest, then it floats.
+      PILLS.forEach(([sel, word, side, tilt], i) => {
+        const at = word - LEAD;
+        tl.fromTo(sel, { x: side * 260, rotation: side * 9 }, { x: 0, rotation: tilt, duration: 0.3, ease: "back.out(1.6)" }, at);
+        later(sel, { opacity: 0 }, { opacity: 1, duration: 0.08, ease: "none" }, at);
+        later(sel, { y: 0 }, { y: i % 2 ? 5 : -5, duration: DUR - at - 0.3, ease: "sine.inOut" }, at + 0.3);
+      });
+
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>
