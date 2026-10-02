@@ -3,12 +3,13 @@
 // scene sources, and lists what is wrong.
 //
 // Usage:
-//   node check.mjs <project> [--video file] [--only video,audio,scenes]
+//   node check.mjs <project> [--video file] [--only video,audio,scenes] [--profile]
 //
 //   <project>      the project folder (the one with project.json)
 //   --video file   check this file instead of the current cut <name>-v<version>.mp4. A scene render
 //                  (renders/s03.mp4) is checked as that scene alone: its own length and source, no audio
 //   --only ...     run only some groups, for example --only scenes before a render
+//   --profile      also write the per-frame motion signals to <project>/work/gate-profile.json (path in "profile")
 //
 // stdout carries one JSON line:
 //   { ok, fail, warn, mode, project, video, checked, findings: [...], measured: {...}, skipped: [...] }
@@ -28,9 +29,13 @@
 //     decode            the file opens and the picture runs to its end                                 FAIL
 //     black-frames      a frame with 99.5 % of its pixels under 3 % brightness                         FAIL
 //                       (WARN when the video only ends on black)
-//     dead-stretch      nothing new happens: the difference between frames, averaged over 0.2 s, stays
-//                       under 0.6 (of 255) for 0.7 s or more. A slow drift or a breathing scale does
-//                       not count as something new. The last 1.5 s are exempt.           WARN, FAIL from 1.8 s
+//     dead-stretch      nothing new for 0.8 s or more. New means the whole picture changes (the frame
+//                       difference, averaged over 0.2 s, reaches 0.6 of 255: a cut, a screen change) or
+//                       one region about 100 px across changes by 50 of 255 within 0.3 s (a word or an
+//                       object enters, leaves, changes or moves fast). Content that only drifts up to
+//                       16 px in 0.3 s, a breathing scale, faint particles and UI text of 30 to 50 px
+//                       do not count. Each event counts for at least 0.5 s. The last 1.5 s are exempt.
+//                                                                                 WARN, FAIL from 1.8 s
 //     flashes           more than 3 brightness jumps in any second. A jump is the mean brightness
 //                       moving by more than 2 % between two frames; jumps in the same direction
 //                       count once                                                                     FAIL
@@ -54,10 +59,30 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs, out, note, die, fwd, loadProject, mediaInfo, ffprobeJson } from './lib/common.mjs';
-import { THRESHOLDS as T, tool, printUsage, round, videoSignals, deadStretches, blackRuns, flashBursts,
+import { THRESHOLDS as T, tool, printUsage, round, videoSignals, deadProfile, blackRuns, flashBursts,
   measureLoudness, voiceSilences, scanScene } from './lib/quality.mjs';
 
-const args = parseArgs(process.argv.slice(2), { booleans: ['help'], aliases: { h: 'help' } });
+const args = parseArgs(process.argv.slice(2), { booleans: ['help', 'profile'], aliases: { h: 'help' } });
+let profileFile = null;
+
+// --profile: one row per analysed frame, so a model can see why a stretch counts as dead.
+function writeProfile(file, prof, fps) {
+  const rows = [];
+  for (let i = 0; i < prof.active.length; i++) {
+    rows.push(`[${(i / fps).toFixed(3)},${prof.whole[i].toFixed(2)},${prof.local[i].toFixed(1)},${prof.active[i]},${prof.dead[i]}]`);
+  }
+  const head = {
+    about: 'One row per frame at 30 fps: t (s), whole (frame difference averaged over 0.2 s), local (largest change of one '
+      + 'region since 0.3 s earlier), active (1 = something new shows), dead (1 = inside a reported dead stretch). '
+      + `A frame shows something new when whole >= ${T.deadDiff} or local >= ${T.localDiff}; each event then counts for at `
+      + `least ${T.eventHold} s. ${T.deadRun} s with nothing new is a dead stretch, ${T.deadFail} s a FAIL.`,
+    video: fwd(video), fps, columns: ['t', 'whole', 'local', 'active', 'dead'],
+    thresholds: { whole: T.deadDiff, local: T.localDiff, eventHold: T.eventHold, deadRun: T.deadRun, deadFail: T.deadFail },
+  };
+  const json = JSON.stringify(head, null, 2).replace(/\n}$/, `,\n  "frames": [\n    ${rows.join(',\n    ')}\n  ]\n}\n`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, json, 'utf8');
+}
 if (args.help) printUsage(import.meta.url);
 if (!args._[0]) printUsage(import.meta.url, 2);
 
@@ -168,12 +193,23 @@ if (info && groups.has('video')) {
         else add('FAIL', 'black-frames', `${span}${inScene(b.t)}: an empty frame flickers; a scene must be complete from its first frame to its last`, at(b.t, b.t_end));
       }
       const lastScene = mode === 'cut' || (scenes.length && single === scenes[scenes.length - 1]);
-      const dead = deadStretches(sig, { exemptTail: lastScene ? T.exemptTail : 0 });
+      const prof = deadProfile(sig, { exemptTail: lastScene ? T.exemptTail : 0 });
+      const dead = prof.stretches;
+      // Word advice only when the video has a voice to time the events to.
+      const hasVoice = ['words.json', 'voice.wav'].some((f) => fs.existsSync(path.join(root, 'audio', f)));
+      const landIt = hasVoice
+        ? 'land something new on a spoken word: an element entering, a cut, a change of screen'
+        : 'land something new: an element entering, a cut, a change of screen';
       for (const d of dead) {
         const what = d.frozen
           ? 'the picture is frozen, nothing moves at all. A scene shorter than its slot is padded with its last frame; otherwise keep a slow push on every hold'
-          : 'only slow or ambient motion. Land something new on a spoken word, or tighten the timing';
+          : `only slow or ambient motion, or details too small to notice. ${landIt[0].toUpperCase()}${landIt.slice(1)}, or tighten the timing`;
         add(d.seconds >= T.deadFail ? 'FAIL' : 'WARN', 'dead-stretch', `nothing new for ${sec(d.seconds)} (${d.t.toFixed(2)} to ${d.t_end.toFixed(2)})${inScene(d.t)}: ${what}`, at(d.t, d.t_end));
+      }
+      if (args.profile) {
+        profileFile = path.join(root, 'work', mode === 'scene' ? `gate-profile-${single.id}.json` : 'gate-profile.json');
+        writeProfile(profileFile, prof, sig.fps);
+        note(`motion profile written: ${fwd(profileFile)}`);
       }
       const flash = flashBursts(sig);
       for (const f of flash.bursts) {
@@ -257,11 +293,13 @@ if (groups.has('scenes')) {
 }
 
 // ---------- result ----------
+if (args.profile && !profileFile) skipped.push('profile: the video was not analysed (no cut, or --only without video)');
 const order = (f) => [f.level === 'FAIL' ? 0 : 1, f.t === undefined ? 1 : 0, f.t ?? 0, f.scene ?? '', f.line ?? 0];
 findings.sort((a, b) => { const x = order(a), y = order(b); for (let i = 0; i < x.length; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; } return 0; });
 const fail = findings.filter((f) => f.level === 'FAIL').length;
 out({
   ok: fail === 0, fail, warn: findings.length - fail, mode, ...(single ? { scene: single.id } : {}),
   project: fwd(root), ...(video ? { video: fwd(video) } : {}), checked: [...groups], findings, measured, skipped,
+  ...(profileFile ? { profile: fwd(profileFile) } : {}),
 });
 process.exitCode = fail ? 1 : 0;

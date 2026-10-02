@@ -2,7 +2,7 @@
 // them, audio measurements, a label font and filter escaping for ffmpeg's drawtext, and a static scanner for scene
 // HTML. Node 20+, built-in modules only. ffmpeg always runs with an argument array.
 //
-// Usage:   import { videoSignals, deadStretches, scanScene } from './lib/quality.mjs';
+// Usage:   import { videoSignals, deadStretches, deadProfile, scanScene } from './lib/quality.mjs';
 // Example: const sig = await videoSignals('cut.mp4', { width: 1080, height: 1920 });
 //          const dead = deadStretches(sig);          // [{ t, t_end, seconds, frozen }]
 import fs from 'node:fs';
@@ -15,9 +15,15 @@ import { SKILL_ROOT, IS_WIN, IS_MAC, findTool, fwd, readJson, die, run } from '.
 export const THRESHOLDS = {
   analysisFps: 30,            // every video is analysed at 30 fps, so the numbers below mean the same at any fps
   analysisShortSide: 135,     // grey analysis frame: 1080x1920 becomes 135x240
-  deadSmooth: 0.2,            // seconds of averaging of the frame difference
-  deadDiff: 0.6,              // mean absolute difference between two frames (0..255) below which nothing happens
-  deadRun: 0.7,               // seconds the averaged difference must stay low (about 0.8 s of picture time)
+  // Something new happens when the whole picture changes OR one region of it does (see deadProfile):
+  deadSmooth: 0.2,            // whole frame: seconds of averaging of the difference between frames
+  deadDiff: 0.6,              // whole frame: mean absolute difference (0..255) from which the picture is changing
+  localCell: 12,              // region: a 12x12 px cell of the analysis frame, about 96 px of the video's short side
+  localWindow: 0.3,           // region: each frame is compared with the frame 0.3 s earlier
+  localShift: 2,              // region: content that moved up to 2 px (16 px of the video) counts as the same content
+  localDiff: 50,              // region: a cell whose mean brightness changed by 50 (0..255) shows something new
+  eventHold: 0.5,             // a new event keeps the picture alive for at least 0.5 s from its start
+  deadRun: 0.8,               // seconds with nothing new: a dead stretch
   deadFail: 1.8,              // from this length a dead stretch is a FAIL, under it a WARN
   frozenDiff: 0.02,           // median difference under this: the picture does not move at all
   exemptTail: 1.5,            // the last seconds of the video may hold still
@@ -111,23 +117,35 @@ export async function scanLuma(file, { width, height, fps }, onLuma) {
 }
 
 // Per-frame numbers for the video checks, in 0..255 units (full range), at THRESHOLDS.analysisFps:
-//   mean[i]  mean brightness of frame i
-//   diff[i]  mean absolute difference between frame i and frame i-1 (diff[0] = 0)
-//   dark[i]  share of the pixels of frame i that are black
+//   mean[i]   mean brightness of frame i
+//   diff[i]   mean absolute difference between frame i and frame i-1 (diff[0] = 0)
+//   dark[i]   share of the pixels of frame i that are black
+//   local[i]  the largest change of one region since 0.3 s earlier. The frame is cut into overlapping cells of
+//             12x12 px (about 96 px of the video); a cell's change is the difference of its mean brightness from the
+//             same cell 0.3 s earlier, or from a neighbour up to 2 px away if that one matches better. So content
+//             that only drifts, breathes or pushes slowly reads as unchanged, while a word, an object or a number
+//             that appears, leaves, changes or moves fast reads as a change.
 export async function videoSignals(file, { width, height }, T = THRESHOLDS) {
   const fps = T.analysisFps;
   const size = analysisSize(width, height, T.analysisShortSide);
-  const pixels = size.width * size.height;
+  const { width: W, height: H } = size;
+  const pixels = W * H;
   const scale = 255 / 219;                         // limited range -> full range
   const darkCode = 16 + T.blackPixel * 219;        // the black level in limited-range codes
   let cap = 4096, n = 0;
-  let mean = new Float32Array(cap), diff = new Float32Array(cap), dark = new Float32Array(cap);
+  let mean = new Float32Array(cap), diff = new Float32Array(cap), dark = new Float32Array(cap), local = new Float32Array(cap);
   const prev = Buffer.alloc(pixels);
+  // Cells on a 2 px grid; the shift tolerance is a whole number of grid steps.
+  const S = Math.min(T.localCell, W, H), STEP = 2, reach = Math.max(0, Math.round(T.localShift / STEP));
+  const nx = Math.floor((W - S) / STEP) + 1, ny = Math.floor((H - S) / STEP) + 1;
+  const back = Math.max(1, Math.round(T.localWindow * fps));
+  const maps = Array.from({ length: back + 1 }, () => new Float32Array(nx * ny));
+  const integral = new Float64Array((W + 1) * (H + 1));
   const r = await scanLuma(file, { ...size, fps }, (y, i) => {
     if (i >= cap) {
       cap *= 2;
       const grow = (a) => { const b = new Float32Array(cap); b.set(a); return b; };
-      mean = grow(mean); diff = grow(diff); dark = grow(dark);
+      mean = grow(mean); diff = grow(diff); dark = grow(dark); local = grow(local);
     }
     let sum = 0, ad = 0, dk = 0;
     for (let p = 0; p < pixels; p++) {
@@ -141,46 +159,102 @@ export async function videoSignals(file, { width, height }, T = THRESHOLDS) {
     diff[i] = i === 0 ? 0 : (ad / pixels) * scale;
     dark[i] = dk / pixels;
     y.copy(prev);
+    // local change: cell means of this frame against the frame `back` frames earlier (the first frame at the start)
+    for (let yy = 0; yy < H; yy++) {
+      let row = 0;
+      const o = yy * W, a = yy * (W + 1), b = (yy + 1) * (W + 1);
+      for (let xx = 0; xx < W; xx++) { row += y[o + xx]; integral[b + xx + 1] = integral[a + xx + 1] + row; }
+    }
+    const cur = maps[i % (back + 1)];
+    for (let cy = 0; cy < ny; cy++) {
+      const y0 = cy * STEP, top = y0 * (W + 1), bottom = (y0 + S) * (W + 1);
+      for (let cx = 0; cx < nx; cx++) {
+        const x0 = cx * STEP;
+        cur[cy * nx + cx] = (integral[bottom + x0 + S] - integral[top + x0 + S] - integral[bottom + x0] + integral[top + x0]) / (S * S);
+      }
+    }
+    const old = maps[Math.max(0, i - back) % (back + 1)];
+    let most = 0;
+    if (i > 0) {
+      for (let cy = 0; cy < ny; cy++) {
+        for (let cx = 0; cx < nx; cx++) {
+          const v = cur[cy * nx + cx];
+          let best = Infinity;
+          for (let sy = Math.max(0, cy - reach); sy <= Math.min(ny - 1, cy + reach) && best > 0; sy++) {
+            for (let sx = Math.max(0, cx - reach); sx <= Math.min(nx - 1, cx + reach); sx++) {
+              const d = v - old[sy * nx + sx];
+              const a = d < 0 ? -d : d;
+              if (a < best) best = a;
+            }
+          }
+          if (best > most) most = best;
+        }
+      }
+    }
+    local[i] = most * scale;
     n = i + 1;
   });
   return { fps, frames: n, seconds: n / fps, size, complete: r.complete,
-    mean: mean.subarray(0, n), diff: diff.subarray(0, n), dark: dark.subarray(0, n) };
+    mean: mean.subarray(0, n), diff: diff.subarray(0, n), dark: dark.subarray(0, n), local: local.subarray(0, n) };
 }
 
 // ---------- detectors ----------
-// Dead stretches. The frame difference is averaged over 0.2 s (a centred window), and a stretch is reported when
-// the average stays under `deadDiff` for `deadRun` seconds or more. A slow drift or a breathing scale stays under
-// the threshold on purpose: ambient motion is not an event. `exemptTail` seconds at the end are not checked.
-export function deadStretches(sig, { exemptTail = THRESHOLDS.exemptTail, ...over } = {}) {
+// Dead stretches: time in which nothing new appears. Frame i shows something new when
+//   - the whole picture changes: the frame difference, averaged over 0.2 s, reaches `deadDiff` (a cut, a screen
+//     change, a camera kick), or
+//   - one region changes: `local` reaches `localDiff` (a word or an object about 100 px or larger enters, leaves,
+//     changes or moves fast).
+// Slow drifts, breathing scales, faint particles and small details (UI text of 30 to 50 px, a small badge) stay
+// under both on purpose: ambient motion is not an event. A new event keeps the picture alive for at least
+// `eventHold` seconds from its start, the time to take it in. A stretch with nothing new for `deadRun` seconds or
+// more is reported; `exemptTail` seconds at the end are not checked.
+// Returns { stretches: [{ t, t_end, seconds, frozen }], whole, local, active, dead } with one value per frame:
+// whole = the averaged frame difference, local = sig.local, active = 1 when something new shows, dead = 1 inside a
+// reported stretch.
+export function deadProfile(sig, { exemptTail = THRESHOLDS.exemptTail, ...over } = {}) {
   const T = { ...THRESHOLDS, ...over };
   const { fps, frames: n, diff } = sig;
+  const local = sig.local || new Float32Array(n);
   const win = Math.max(1, Math.round(T.deadSmooth * fps)), half = Math.floor(win / 2);
   const pre = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + (i === 0 ? 0 : diff[i]);
-  const low = (i) => {                             // is the averaged difference around frame i under the threshold
+  const whole = new Float32Array(n);
+  const active = new Uint8Array(n);
+  for (let i = 1; i < n; i++) {
     const a = Math.max(1, i - half), b = Math.min(n, i - half + win);
-    return b > a && (pre[b] - pre[a]) / (b - a) < T.deadDiff;
-  };
+    whole[i] = b > a ? (pre[b] - pre[a]) / (b - a) : 0;
+    if (whole[i] >= T.deadDiff || local[i] >= T.localDiff) active[i] = 1;
+  }
+  const hold = Math.round(T.eventHold * fps);
+  for (let i = 1; i < n; i++) {                    // every event lasts at least `hold` frames from its start
+    if (!active[i] || active[i - 1]) continue;
+    for (let k = i; k < Math.min(n, i + hold); k++) active[k] = 1;
+    i += hold - 1;
+  }
   const minRun = Math.max(1, Math.round(T.deadRun * fps));
   const limit = n - Math.round(exemptTail * fps);  // the first exempt frame
-  const out = [];
+  const dead = new Uint8Array(n);
+  const stretches = [];
   let i = 1;
   while (i < n) {
-    if (!low(i)) { i++; continue; }
+    if (active[i]) { i++; continue; }
     let j = i;
-    while (j < n && low(j)) j++;
-    const end = Math.min(j, limit);                // differences i..end-1 are low: frames i-1..end-1 look the same
+    while (j < n && !active[j]) j++;
+    const end = Math.min(j, limit);                // frames i-1..end-1 show nothing new
     if (end - i >= minRun) {
       const vals = Array.from(diff.subarray(i, end)).sort((a, b) => a - b);
-      out.push({
+      stretches.push({
         t: round((i - 1) / fps), t_end: round((end - 1) / fps), seconds: round((end - i) / fps),
         frozen: vals[vals.length >> 1] < T.frozenDiff,
       });
+      dead.fill(1, i, end);
     }
     i = j;
   }
-  return out;
+  return { stretches, whole, local, active, dead };
 }
+
+export const deadStretches = (sig, opts) => deadProfile(sig, opts).stretches;
 
 // Runs of black frames: [{ t, t_end, frames, atStart, atEnd }].
 export function blackRuns(sig, T = THRESHOLDS) {

@@ -33,15 +33,17 @@ Run it after every assembly. Nothing is shown before it passes and before you ha
      node "<SKILL>/scripts/check.mjs" "<project>" --video "<project>/renders/s03.mp4"
      ```
 
-   **A stretch where nothing happens.**
-   - Make a sheet of that stretch and look at it before deciding:
+   **A stretch where nothing happens.** New means a change of the whole picture (a cut, a new screen) or of one
+   element about 100 px or larger that enters, leaves, changes or moves fast; it counts for half a second. Drifts,
+   breathing, faint particles and details under about 50 px do not count. 0.8 s with nothing new is a `WARN`.
+   - Look at a sheet of the stretch before deciding. `--profile` on the check writes the signals of every frame to
+     `<project>/work/gate-profile.json`.
      ```
      node "<SKILL>/scripts/sheet.mjs" "<video>" --every 0.25 --range <t-0.5>-<t_end+0.5>
      ```
-   - A `WARN` on a pause the plan asks for, such as a breath after a peak, may stay.
-   - A `FAIL` (1.8 seconds or more) is always fixed.
-   - "Frozen" means nothing moves at all. Usually a scene's render is shorter than its slot, or its timeline ends
-     early.
+   - A `WARN` on a pause the plan asks for may stay. A `FAIL` (1.8 s) is fixed with an event the viewer notices,
+     not a jolt for the gate. The gate can miss a thin line or ring being drawn: check the sheet first.
+   - "Frozen" means nothing moves at all: a render shorter than its slot, or a timeline that ends early.
 2. **Look at the flow.**
    ```
    node "<SKILL>/scripts/sheet.mjs" "<video>" --every 0.5
@@ -65,6 +67,8 @@ Run it after every assembly. Nothing is shown before it passes and before you ha
    - a peak looks like a peak (`references/craft.md`, section 5).
 4. **Fix and run again.** Do at least two full rounds on a first cut.
    - A problem in the plan itself gets the smallest fix that works. Tell the user in one line when you show the cut.
+   - Rounds before the user has seen anything keep the same version: run `assemble.mjs` without `--bump`. Bump
+     when you show a new cut after notes, and for the final.
 
 ## 2. The review page
 
