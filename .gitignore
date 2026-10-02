@@ -8,3 +8,5 @@ Thumbs.db
 *.mp4
 *.mov
 *.webm
+__pycache__/
+*.pyc
