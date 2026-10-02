@@ -1,10 +1,10 @@
 {
   "name": "focus-motion",
   "displayName": "Focus Motion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Focus Motion by Focus AI Academy: direct, build and edit complete videos inside Claude Code, in Hebrew. Motion videos from an idea or a voiceover, editing of your own footage with a transcript and captions, and a review page for notes on exact seconds.",
   "author": { "name": "Focus AI Academy", "url": "https://focusai.co.il" },
-  "homepage": "https://focusai.co.il",
+  "homepage": "https://focusai.co.il/guides/focus-motion/",
   "repository": "https://github.com/FOCUS-OS-DEV/focus-motion",
   "license": "SEE LICENSE IN LICENSE.md",
   "keywords": ["video", "motion", "hebrew", "captions", "reels", "editing"],
