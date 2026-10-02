@@ -9,8 +9,9 @@
 //                                                                  every video of source/media.json that needs it, into work/norm/
 //   node footage.mjs still <file> [--at 1.5] [-o frame.jpg] [--width 540]
 //                                                                  one frame in true colours (also turns a photo into a JPEG)
-//   node footage.mjs edl <project> <file> [--words file.json] [--pause 0.5] [--pad 0.12] [--tail 1.5] [--id s01] [--split]
-//                                                                  proposes edl.json from a transcript: speech stays, pauses go
+//   node footage.mjs edl <project> <file> [--words file.json] [--pause 0.5] [--pad 0.12] [--tail 1.5] [--id s01] [--split] [--no-check]
+//                                                                  proposes edl.json from a transcript: speech stays, pauses and
+//                                                                  hesitations hidden in stretched words go (each cut checked by ear)
 //   node footage.mjs cut <project> [--whole <file>] [--set-scenes] [--dry-run]
 //                                                                  edl.json -> work/base/<id>.mp4, work/voice-raw.wav, work/audio-raw.wav,
 //                                                                  audio/words.json on the new timeline, work/scenes.json
@@ -43,11 +44,11 @@ import { engine } from './lib/engine.mjs';
 import { removeTree } from './lib/cli.mjs';
 import {
   fail, usage, tool, runBinary, findProjectRoot, archiveExisting, safeName, fpsArg, TAG_709, x264,
-  probeFootage, normalizeFootage, colourFilters, readWords, wordsText,
+  probeFootage, normalizeFootage, colourFilters, readWords, wordsText, transcribePython, SPEECH_MODELS, modelFolder, modelReady,
 } from './lib/media.mjs';
 
 const args = parseArgs(process.argv.slice(2), {
-  booleans: ['help', 'force', 'set-scenes', 'dry-run', 'draft', 'keep', 'rewire', 'lut', 'split'],
+  booleans: ['help', 'force', 'set-scenes', 'dry-run', 'draft', 'keep', 'rewire', 'lut', 'split', 'check'],
   aliases: { o: 'out', h: 'help' },
 });
 const [job, ...rest] = args._;
@@ -221,7 +222,9 @@ async function edl() {
     for (let k = Math.ceil((lastEnd + 0.25) / lv.hop); k * lv.hop < stop && k < lv.db.length; k++) if (lv.db[k] > sound) { stop = Math.max(lastEnd + pad, k * lv.hop - 0.05); break; }
     tailEnd = stop;
   }
-  const segments = runs.map((r, i) => {
+  const st = await stretchedCuts(file, words, lv, fps, info.duration, String(project.language || 'he'));
+  const pieces = [];
+  runs.forEach((r, i) => {
     const prevEnd = i ? runs[i - 1][runs[i - 1].length - 1].end : 0;
     const nextStart = runs[i + 1] ? runs[i + 1][0].start : info.duration;
     const first = r[0].start, end = r[r.length - 1].end, isLast = i === runs.length - 1;
@@ -230,15 +233,173 @@ async function edl() {
     // Listed word times can be off by about 0.1 s, so an edge keeps 80 ms from the listed start or end of a word.
     a = quietest(a, i ? (prevEnd + first) / 2 : 0, Math.max(0, first - 0.08));
     if (!isLast) b = quietest(b, end + 0.08, (end + nextStart) / 2);
-    return { id: args.split ? `s${String(i + 1).padStart(2, '0')}` : id, src: rel(root, file), in: r3(snap(a)), out: r3(snap(b)), text: wordsText(r) };
-  }).filter((s) => s.out - s.in >= 1 / fps);
+    a = snap(a); b = snap(b);
+    // A stretched word's checked cuts split the run; the words of each piece go with it.
+    const inside = st.cuts.filter((c) => c.a > a && c.b < b).sort((x, y) => x.a - y.a);
+    let from = a;
+    for (const c of [...inside, { a: b, b }]) {
+      const ws = r.filter((w) => (w.start + w.end) / 2 >= from && (w.start + w.end) / 2 < c.a);
+      const piece = { run: i, in: r3(from), out: r3(c.a), text: wordsText(ws.length ? ws : r.filter((w) => w.start < c.a && w.end > from)) };
+      if (c.word) piece.cut_after = { from: r3(c.a), to: r3(c.b), why: `hesitation inside "${c.word}"` };
+      pieces.push(piece);
+      from = c.b;
+    }
+  });
+  const segments = pieces.filter((s) => s.out - s.in >= 1 / fps).map((s, k) => ({
+    id: args.split ? `s${String(k + 1).padStart(2, '0')}` : id, src: rel(root, file), in: s.in, out: s.out, text: s.text,
+    ...(s.cut_after ? { cut_after: s.cut_after } : {}),
+  }));
+  // What goes, for the approval: every gap between the kept pieces, with the reason.
+  const removed = [];
+  let t = 0;
+  for (const s of segments) {
+    if (s.in - t >= 1 / fps) {
+      const prev = segments[segments.indexOf(s) - 1];
+      removed.push({ from: r3(t), to: s.in, seconds: r3(s.in - t), why: prev && prev.cut_after ? prev.cut_after.why : t === 0 ? 'before the first word' : 'pause' });
+    }
+    t = s.out;
+  }
+  if (info.duration - t >= 1 / fps) removed.push({ from: r3(t), to: r3(info.duration), seconds: r3(info.duration - t), why: 'after the last word' });
   const kept = segments.reduce((s, x) => s + (x.out - x.in), 0);
   const file2 = path.join(root, 'edl.json');
   const old = archiveExisting(file2);
-  writeJson(file2, { segments });
+  writeJson(file2, { segments, removed, stretched: st.stretched });
   out({ ok: true, edl: 'edl.json', archived: old ? rel(root, old) : null, clip: rel(root, file), words: rel(root, wordsFile),
     segments: segments.length, source_seconds: r3(info.duration), kept_seconds: r3(kept), removed_seconds: r3(info.duration - kept),
-    tail_seconds: r3(Math.max(0, segments.length ? segments[segments.length - 1].out - lastEnd : 0)), list: segments });
+    tail_seconds: r3(Math.max(0, segments.length ? segments[segments.length - 1].out - lastEnd : 0)),
+    stretched: st.stretched, removed, list: segments });
+}
+
+// ---- stretched words -------------------------------------------------------------------------------------------
+// The speech model writes clean text, so a hesitation ("ש... עושה", a held "וההההה" before a word) hides inside one
+// word whose time span is far longer than its letters need. Such words are found by length, cuts are proposed from
+// the sound (quiet runs and steady held runs inside the span), and each cut is kept only if the recogniser still
+// hears every word whole in the spliced sound.
+const spokenLength = (t) => (String(t).match(/\p{L}/gu) || []).length + 3 * (String(t).match(/\p{N}/gu) || []).length;
+const isStretched = (w) => w.end - w.start > 0.09 * Math.max(1, spokenLength(w.text)) + 0.35;
+const normWord = (t) => String(t).normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+
+// Candidate cuts inside the span [s, e]: quiet runs (a pause) and steady runs (a held sound) of the smoothed level.
+function cutCandidates(lv, s, e, fps) {
+  const { db, hop } = lv, N = db.length;
+  const sm = new Float32Array(N);
+  for (let k = 0; k < N; k++) {                    // 30 ms average, in power
+    let p = 0, c = 0;
+    for (let j = Math.max(0, k - 1); j <= Math.min(N - 1, k + 1); j++) { p += 10 ** (db[j] / 10); c++; }
+    sm[k] = 10 * Math.log10(p / c + 1e-12);
+  }
+  const k0 = Math.max(0, Math.floor((s - 0.3) / hop)), k1 = Math.min(N, Math.ceil((e + 0.3) / hop));
+  const local = Array.from(sm.slice(k0, k1)).sort((a, b) => a - b);
+  const quiet = (local[Math.floor(local.length * 0.15)] ?? -90) + 4;
+  const steady = (k) => {
+    let lo = Infinity, hi = -Infinity;
+    for (let j = Math.max(0, k - 10); j <= Math.min(N - 1, k + 10); j++) { lo = Math.min(lo, sm[j]); hi = Math.max(hi, sm[j]); }
+    return hi - lo < 4.5;
+  };
+  const snapT = (t) => Math.round(t * fps) / fps;
+  const out = [];
+  const scan = (test, minLen, kind, headKeep, tailKeep) => {
+    let start = null;
+    const from = Math.ceil((s + 0.04) / hop), to = Math.floor((e - 0.04) / hop);
+    for (let k = from; k <= to + 1; k++) {
+      const on = k <= to && test(k);
+      if (on && start === null) start = k;
+      if (!on && start !== null) {
+        const a = start * hop + headKeep, b = k * hop - tailKeep;
+        if ((k - start) * hop >= minLen && b - a >= 2 / fps) out.push({ kind, a: snapT(a), b: snapT(b) });
+        start = null;
+      }
+    }
+  };
+  // A pause keeps 50 ms after the sound before it and 80 ms before the sound after it: a soft onset ("ע", "ה") sits
+  // near the room's level, so the quiet run can reach into it.
+  scan((k) => sm[k] <= quiet, 0.2, 'pause', 0.05, 0.08);
+  scan((k) => sm[k] > quiet && steady(k), 0.45, 'held', 0.13, 0.05);
+  return out.filter((c) => c.b > c.a);
+}
+
+// Shorter versions of a cut, tried when the whole cut damages a word: anchored left, anchored right, centred.
+function shrinkings(c, fps) {
+  const L = c.b - c.a, snapT = (t) => Math.round(t * fps) / fps, list = [];
+  for (const f of [0.75, 0.6, 0.45, 0.3]) {
+    list.push({ a: c.a, b: snapT(c.a + L * f) }, { a: snapT(c.b - L * f), b: c.b }, { a: snapT(c.a + (L * (1 - f)) / 2), b: snapT(c.b - (L * (1 - f)) / 2) });
+  }
+  return list.filter((x) => x.b - x.a >= 2 / fps);
+}
+
+// Runs transcribe.py --splice on a batch of tests. Null when transcription is not installed.
+async function spliceTests(file, spec, lang) {
+  const body = Array.isArray(spec) ? { tests: spec } : spec;
+  const python = transcribePython();
+  if (!python || !((body.tests || []).length + (body.search || []).length)) return null;
+  const repo = lang === 'he' ? SPEECH_MODELS.he : SPEECH_MODELS.other;
+  const given = args['model-dir'] && args['model-dir'] !== true ? path.resolve(String(args['model-dir'])) : null;
+  const modelDir = given && fs.existsSync(path.join(given, 'model.bin')) ? given : modelReady(modelFolder(repo)) ? modelFolder(repo) : null;
+  if (!modelDir) return null;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fm-splice-'));
+  try {
+    const inFile = path.join(tmp, 'tests.json'), outFile = path.join(tmp, 'results.json');
+    fs.writeFileSync(inFile, JSON.stringify(body));
+    const pyArgs = [path.join(SKILL_ROOT, 'scripts', 'transcribe.py'), file, '--splice', inFile, '-o', outFile, '--language', lang, '--model-dir', modelDir];
+    const ff = tool('ffmpeg');
+    if (ff) pyArgs.push('--ffmpeg', ff);
+    if (args.device && args.device !== true) pyArgs.push('--device', String(args.device));
+    const r = await run(python, pyArgs, { env: { PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' }, timeoutMs: 900000 });
+    if (r.code !== 0 || !fs.existsSync(outFile)) { note(`the cut check could not run: ${r.stdout.trim().split(/\r?\n/).pop() || r.stderr.trim().split(/\r?\n/).pop()}`); return null; }
+    return new Map(readJson(outFile).results.map((x) => [x.id, x]));
+  } finally { removeTree(tmp); }
+}
+
+// Finds stretched words and the cuts that remove their hesitation while every word stays whole. The search itself
+// runs in transcribe.py (one model load): the versions go there longest first, and each one is kept only if the
+// recogniser still hears every word whole with it and the cuts kept before it.
+async function stretchedCuts(file, words, lv, fps, duration, lang) {
+  const flagged = [];
+  words.forEach((w, i) => { if (isStretched(w)) flagged.push(i); });
+  if (!flagged.length) return { stretched: [], cuts: [] };
+  const snapT = (t) => Math.round(t * fps) / fps;
+  const levelAt = (t) => (lv ? lv.db[Math.min(lv.db.length - 1, Math.max(0, Math.round(t / lv.hop)))] : 0);
+  const plan = flagged.map((i) => {
+    const w = words[i], p = words[i - 1], n = words[i + 1];
+    const window = [r3(Math.max(0, (p ? p.start : w.start - 0.5) - 0.3)), r3(Math.min(duration, (n ? n.end : w.end + 0.5) + 0.5))];
+    const versions = [];
+    // From the sound: quiet runs (pauses) and steady runs, each with shorter versions.
+    for (const c of lv ? cutCandidates(lv, w.start, w.end, fps) : []) versions.push({ a: c.a, b: c.b }, ...shrinkings(c, fps));
+    // A sliding search over the word's excess length (its span minus what its letters need), whatever the
+    // hesitation sounds like: a pause, a held vowel, a half-started syllable.
+    const excess = w.end - w.start - (0.09 * Math.max(1, spokenLength(w.text)) + 0.1);
+    for (const f of [1, 0.75, 0.5]) {
+      const len = excess * f;
+      if (len < 0.2) continue;
+      for (let a = w.start + 0.1; a + len <= w.end - 0.12 + 1e-9; a += 0.12) versions.push({ a: snapT(a), b: snapT(a + len) });
+    }
+    const seen = new Set();
+    const list = versions.filter((v) => v.b - v.a >= 2 / fps && !seen.has(`${v.a}:${v.b}`) && seen.add(`${v.a}:${v.b}`))
+      .sort((x, y) => (y.b - y.a) - (x.b - x.a) || Math.abs(levelAt(x.a) - levelAt(x.b)) - Math.abs(levelAt(y.a) - levelAt(y.b)));
+    return {
+      w, item: {
+        id: String(i), window, word: w.text, prev: p ? p.text : null, next: n ? n.text : null,
+        prev_end: p ? r3(p.end) : null, next_start: n ? r3(n.start) : null,
+        versions: list.map((v) => [r3(v.a), r3(v.b)]), max_tests: 30, max_tests_cpu: 12,
+      },
+    };
+  });
+  const check = args.check !== false;
+  const res = check ? await spliceTests(file, { search: plan.map((x) => x.item) }, lang) : null;
+  const out = { stretched: [], cuts: [] };
+  for (const { w, item } of plan) {
+    const r = res ? res.get(item.id) : null;
+    const cuts = r && r.checked ? r.cuts : [];
+    out.stretched.push({
+      word: w.text, t: r3(w.start), t_end: r3(w.end),
+      proposed_cut: cuts.length ? cuts[0] : null, proposed_cuts: cuts,
+      removed_seconds: r3(cuts.reduce((x, c) => x + (c[1] - c[0]), 0)),
+      checked: Boolean(r && r.checked), ...(r && r.checked ? { tests: r.tests } : {}),
+      ...(r && r.checked ? {} : { note: r ? r.note : check ? 'transcription is not installed, so the cuts could not be checked' : 'not checked (--no-check)' }),
+    });
+    for (const c of cuts) out.cuts.push({ a: c[0], b: c[1], word: w.text });
+  }
+  return out;
 }
 
 // The level of a file's sound in 10 ms steps, in dB (mono, 16 kHz), or null when it has none.
@@ -332,20 +493,19 @@ async function writeBaseClip(parts, dst, { W, H, fps, crf = 14 }) {
   return frames;
 }
 
-// The sound of one source range as stereo float samples, exactly `samples` long (silence where the source has none).
+// The sound of one source range as stereo float samples, exactly `samples` long: silence where the source has
+// none, also before its start (a negative start).
 async function readAudio(file, startSec, samples, hasAudio) {
   const data = new Float32Array(samples * 2);
   if (!hasAudio || samples <= 0) return data;
-  const r = await runBinary(tool('ffmpeg'), ['-hide_banner', '-loglevel', 'error', '-ss', startSec.toFixed(6), '-t', (samples / 48000 + 0.25).toFixed(3),
+  const lead = startSec < 0 ? Math.min(samples, Math.round(-startSec * 48000)) : 0;
+  const want = samples - lead;
+  if (want <= 0) return data;
+  const r = await runBinary(tool('ffmpeg'), ['-hide_banner', '-loglevel', 'error', '-ss', Math.max(0, startSec).toFixed(6), '-t', (want / 48000 + 0.25).toFixed(3),
     '-i', file, '-map', '0:a:0', '-vn', '-af', 'aresample=48000:async=1:first_pts=0', '-ac', '2', '-f', 'f32le', 'pipe:1']);
   if (r.code !== 0) throw new Error(`could not read the sound of ${fwd(file)}: ${r.stderr.trim().split(/\r?\n/).slice(-2).join(' | ')}`);
-  const n = Math.min(samples * 2, Math.floor(r.stdout.length / 4));
-  new Uint8Array(data.buffer).set(r.stdout.subarray(0, n * 4));
-  const fade = Math.min(192, Math.floor(samples / 2));               // 4 ms at each edge, so a cut never clicks
-  for (let i = 0; i < fade; i++) {
-    const g = i / fade, tail = (samples - 1 - i) * 2;
-    data[i * 2] *= g; data[i * 2 + 1] *= g; data[tail] *= g; data[tail + 1] *= g;
-  }
+  const n = Math.min(want * 2, Math.floor(r.stdout.length / 4));
+  new Uint8Array(data.buffer, lead * 8).set(r.stdout.subarray(0, n * 4));
   return data;
 }
 
@@ -496,13 +656,33 @@ async function cut() {
   const total = sampleAt(frames);
   const voice = wavWriter(path.join(root, 'work', 'voice-raw.wav'), total, 1);
   const audio = wavWriter(path.join(root, 'work', 'audio-raw.wav'), total, 2);
+  // Every join is an 8 ms + 8 ms equal-power crossfade centred on the cut, made from sound just past each edge, so
+  // a cut inside a held vowel does not click and the total length stays exact to the sample.
+  const X = 384;
+  const emit = (st) => {
+    const mono = new Float32Array(st.length / 2);
+    for (let i = 0; i < mono.length; i++) mono[i] = (st[i * 2] + st[i * 2 + 1]) / 2;
+    audio.write(st); voice.write(mono);
+  };
+  let carry = null;                                // the previous piece's last X samples and X samples past its end
   for (const s of segs) {
     const n = sampleAt(s.startFrame + s.frames) - sampleAt(s.startFrame);
-    const st = s.kind === 'silence' ? new Float32Array(n * 2) : await readAudio(s.file, s.inFrame / fps, n, s.info.hasAudio);
-    const mono = new Float32Array(n);
-    for (let i = 0; i < n; i++) mono[i] = (st[i * 2] + st[i * 2 + 1]) / 2;
-    audio.write(st); voice.write(mono);
+    // ext covers [start - X, end + X]; the piece's own samples are ext[X, X + n)
+    const ext = s.kind === 'silence' ? new Float32Array((n + 2 * X) * 2) : await readAudio(s.file, s.inFrame / fps - X / 48000, n + 2 * X, s.info.hasAudio);
+    if (!carry) emit(ext.subarray(X * 2, n * 2));
+    else {
+      const mix = new Float32Array(4 * X);
+      for (let i = 0; i < 2 * X; i++) {
+        const th = ((i + 0.5) / (2 * X)) * (Math.PI / 2), go = Math.cos(th), come = Math.sin(th);
+        mix[i * 2] = carry[i * 2] * go + ext[i * 2] * come;
+        mix[i * 2 + 1] = carry[i * 2 + 1] * go + ext[i * 2 + 1] * come;
+      }
+      emit(mix);
+      emit(ext.subarray(4 * X, n * 2));
+    }
+    carry = ext.slice(n * 2, (n + 2 * X) * 2);
   }
+  if (carry) emit(carry.subarray(0, X * 2));
   voice.close(); audio.close();
 
   // ---- the words, moved to the new timeline (when the sources have transcripts in work/words/)

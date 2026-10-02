@@ -5,7 +5,7 @@ license: Free to use for making videos, including commercial ones. The skill its
 compatibility: Claude Code on Windows or macOS. Needs Node.js 20 or newer and ffmpeg. The first-time setup installs what is missing and needs an internet connection once.
 metadata:
   author: Focus AI Academy
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Focus Motion

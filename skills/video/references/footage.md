@@ -22,9 +22,8 @@ One service gets only its steps: captions only is the last section; a transcript
 ```
 node "<SKILL>/scripts/footage.mjs" normalize-all "<project>"
 ```
-- Every video in `source/media.json` that needs it gets `work/norm/<name>.mp4`: rotation applied, HDR tone-mapped to
-  SDR BT.709, constant frame rate at the project fps, H.264, AAC 48 kHz, camera metadata (location included) dropped.
-  A second run skips what is done; a clip that needs nothing reports `"no need"` and its `use` path.
+- Every video in `source/media.json` that needs it gets `work/norm/<name>.mp4`: rotated, HDR tone-mapped to SDR BT.709,
+  constant fps, H.264, AAC 48 kHz, no camera metadata. A second run skips what is done; `"no need"` gives its `use` path.
 - One file: `normalize "<file>"`. Facts only: `probe "<file>"`. Nothing uses `source/` clips directly.
 
 ## 2. Transcribe, and approval 1
@@ -32,8 +31,7 @@ node "<SKILL>/scripts/footage.mjs" normalize-all "<project>"
 ```
 node "<SKILL>/scripts/transcribe.mjs" "<project>/work/norm/<name>.mp4" -o "<project>/work/words/<name>.json"
 ```
-- The words file takes the clip's name, in `work/words/`, where `cut` looks for it. The first time, exit code 3 lists
-  the install commands (`references/setup.md`). Measured: 30 s of speech in 2.3 s on an NVIDIA card, 26 s without.
+- The words file takes the clip's name, in `work/words/`, where `cut` looks for it. Exit code 3: see `references/setup.md`.
 - `--script "<file.txt>"` when the speaker read a text: matched words take its spelling, names included.
 - Show the `text`: `התמלול נכון? תקנו שמות ומילים אם צריך.` English names often come back in Latin letters or
   misheard ("Cloud Code" for קלוד קוד). Write the corrected text to a file; the times stay, and the reply lists
@@ -52,11 +50,13 @@ node "<SKILL>/scripts/transcribe.mjs" "<project>/work/norm/<name>.mp4" -o "<proj
   (its sound only), or `{ "id", "duration" }` for silence.
 - The proposal from the transcript: speech stays, pauses over 0.5 s go, each edge moves to the quietest moment within
   0.15 s (80 ms clear of the listed words), and the last stretch keeps up to 1.5 s after the last word (`--tail`) for
-  a closing title, stopping before the next sound. `--split` gives each stretch its own scene.
-  ```
-  node "<SKILL>/scripts/footage.mjs" edl "<project>" "<project>/work/norm/<name>.mp4" --split
-  ```
-- Approval 2: what stays, what goes, the seconds saved: `ככה חותכים?`. The numbers without writing anything:
+  a closing title, stopping before the next sound. `--split` gives each piece its own scene.
+  `node "<SKILL>/scripts/footage.mjs" edl "<project>" "<project>/work/norm/<name>.mp4" --split`
+- Hesitations hide inside a word ("ש... עושה", a held "וההה" before a word): the model writes clean text and stretches
+  the word over them. A word longer than its letters need (0.09 s a letter + 0.35 s) gets cuts inside it, kept only
+  if the recogniser still hears every word whole in the spliced sound: half a minute on an NVIDIA card, a few minutes
+  without (`--no-check` skips it). They are in `stretched`, and in `removed` as "hesitation inside".
+- Approval 2: show `removed` (what goes, and why) and the seconds saved: `ככה חותכים?`. The numbers alone:
   `node "<SKILL>/scripts/footage.mjs" cut "<project>" --dry-run`.
 
 ## 4. Cut, and the voice
