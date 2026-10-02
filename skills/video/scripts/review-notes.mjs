@@ -808,7 +808,7 @@ button.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line
 #done{background:var(--ink)}
 @media (max-width:1399px){#row{align-items:flex-start}#tc{line-height:45px}#done{display:block;margin:8px auto 0 0}}
 #right{display:flex;flex-direction:column;min-height:0}
-h1{font-size:30px;margin:4px 0 6px}#name{font-size:20px;color:var(--soft);margin-bottom:12px}
+h1{font-size:30px;margin:4px 0 6px}#name{font-size:20px;color:var(--soft);margin-bottom:12px;direction:ltr;text-align:right}
 #keys{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;line-height:1.75;margin-bottom:14px}
 kbd{display:inline-block;min-width:34px;text-align:center;background:var(--acc2);border-radius:8px;padding:0 8px;font-family:inherit;font-weight:700;color:var(--acc)}
 #editor{display:none;background:var(--card);border:2px solid var(--acc);border-radius:16px;padding:14px;margin-bottom:14px}
@@ -822,6 +822,10 @@ textarea{width:100%;min-height:96px;font:inherit;font-size:22px;border:1px solid
 .n button{font-size:16px;padding:6px 12px}
 #empty{color:var(--soft);font-size:21px;padding:10px 4px}
 #flash{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 22px;border-radius:12px;opacity:0;transition:opacity .25s;font-size:20px}
+body.wide main{grid-template-columns:minmax(0,1fr) minmax(330px,25vw)}
+body.wide #left{align-items:stretch}
+body.wide video{height:auto;width:100%;max-height:calc(100vh - 170px);aspect-ratio:16/9}
+video:fullscreen{border-radius:0;max-height:none;height:100%;width:100%}
 </style></head><body>
 <main>
  <section id="left">
@@ -829,7 +833,7 @@ textarea{width:100%;min-height:96px;font:inherit;font-size:22px;border:1px solid
   <div id="bar"><div id="fill"></div><div id="sel"></div><div id="head"></div></div>
   <div id="row">
    <span id="tc">0.00</span>
-   <span><button class="ghost" id="slow">מהירות רגילה</button> <button id="add">הערה כאן (N)</button> <button id="done">סיימתי, אפשר לתקן</button></span>
+   <span><button class="ghost" id="slow">מהירות רגילה</button> <button class="ghost" id="full">מסך מלא (F)</button> <button id="add">הערה כאן (N)</button> <button id="done">סיימתי, אפשר לתקן</button></span>
   </div>
  </section>
  <section id="right">
@@ -840,6 +844,7 @@ textarea{width:100%;min-height:96px;font:inherit;font-size:22px;border:1px solid
    <kbd>I</kbd> תחילת קטע &nbsp; <kbd>O</kbd> סוף הקטע ואז הערה על כל הקטע<br>
    <kbd>←</kbd> <kbd>→</kbd> פריים אחד, עם שיפט שנייה &nbsp; <kbd>S</kbd> הילוך איטי<br>
    <kbd>Enter</kbd> שומר את ההערה, <kbd>Esc</kbd> מבטל. אפשר גם להכתיב לתוך התיבה<br>
+   <kbd>F</kbd> או לחיצה כפולה על הסרטון: מסך מלא<br>
    <kbd>D</kbd> סיימתי, אפשר לתקן
   </div>
   <div id="editor"><div class="when" id="when"></div><textarea id="txt" placeholder="מה מפריע כאן?"></textarea>
@@ -870,7 +875,9 @@ function draw(){
   eb.onclick=()=>{editing=i;open(n.t,n.t_end,n.text)};
   db.onclick=()=>{if(confirm('למחוק את ההערה?')){notes.splice(i,1);save()}};
   list.appendChild(d)})}
-function open(t,t2,text){v.pause();draft={t:+t.toFixed(2),t_end:t2==null?null:+t2.toFixed(2)};
+function full(){if(document.fullscreenElement)document.exitFullscreen();else v.requestFullscreen().catch(()=>{})}
+document.getElementById('full').onclick=full;v.addEventListener('dblclick',full);
+function open(t,t2,text){if(document.fullscreenElement)document.exitFullscreen();v.pause();draft={t:+t.toFixed(2),t_end:t2==null?null:+t2.toFixed(2)};
  when.textContent=(draft.t_end!=null?'קטע '+fmt(draft.t)+' עד '+fmt(draft.t_end):'ברגע '+fmt(draft.t));
  ed.style.display='block';txt.value=text||'';txt.focus()}
 function close(){ed.style.display='none';draft=null;editing=null;inT=null;sel.style.display='none';v.focus()}
@@ -894,6 +901,7 @@ addEventListener('keydown',e=>{if(document.activeElement===txt)return;
  else if(e.code==='KeyI'){e.preventDefault();inT=v.currentTime;sel.style.display='block';flash('תחילת קטע: '+fmt(inT)+'. עכשיו O בסוף הקטע')}
  else if(e.code==='KeyO'){e.preventDefault();if(inT==null){flash('קודם I בתחילת הקטע');return}const a=Math.min(inT,v.currentTime),b=Math.max(inT,v.currentTime);editing=null;open(a,b)}
  else if(e.code==='KeyS'){e.preventDefault();toggleSlow()}
+ else if(e.code==='KeyF'){e.preventDefault();full()}
  else if(e.code==='KeyD'&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey){e.preventDefault();sendDone()}
  else if(e.code==='ArrowLeft'||e.code==='ArrowRight'){e.preventDefault();v.pause();const d=(e.shiftKey?1:1/FPS)*(e.code==='ArrowRight'?1:-1);v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+d))}});
 bar.addEventListener('click',e=>{const r=bar.getBoundingClientRect();v.currentTime=(e.clientX-r.left)/r.width*v.duration});
@@ -901,7 +909,7 @@ function tick(){tc.textContent=fmt(v.currentTime||0);const p=pct(v.currentTime||
  if(inT!=null){const a=Math.min(inT,v.currentTime),b=Math.max(inT,v.currentTime);sel.style.left=pct(a)+'%';sel.style.width=(pct(b)-pct(a))+'%'}
  const on=notes.findIndex(n=>Math.abs(n.t-v.currentTime)<0.25||(n.t_end!=null&&v.currentTime>=n.t&&v.currentTime<=n.t_end));
  [...list.querySelectorAll('.n')].forEach((d,i)=>d.classList.toggle('on',i===on));requestAnimationFrame(tick)}
-v.addEventListener('loadedmetadata',draw);
+v.addEventListener('loadedmetadata',()=>{document.body.classList.toggle('wide',v.videoWidth>v.videoHeight);if(v.videoWidth)v.style.aspectRatio=v.videoWidth+'/'+v.videoHeight;draw()});
 async function poll(){try{const c=await (await fetch('/current')).json();
  if(ver&&ver!==c.name+c.mtime){const r=await fetch('/notes');notes=await r.json();v.src='/video?'+Date.now();flash('נטענה גרסה חדשה: '+c.name)}
  ver=c.name+c.mtime;document.getElementById('name').textContent=c.name}catch(e){} setTimeout(poll,3000)}
