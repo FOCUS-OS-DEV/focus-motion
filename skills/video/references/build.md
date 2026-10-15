@@ -26,7 +26,7 @@ node "<SKILL>/scripts/project.mjs" ingest my-video "חומרים מהלקוח"
 - `project.json` keeps `fonts` (default `["Rubik"]`) and `features`, which Claude edits by hand. A missing key is
   never an error. The keys and what each controls are in `references/conversation.md` (the extras table).
   Defaults: idea and voice have no captions and no cuts; footage has both; `voiceTighten` is on for voice only; `sfx` and `lookTest`
-  are on, `music` is off, `voicePolish` is on for voice and footage.
+  are on, `sound` is soft, `music` is off until the user brings a track, `voicePolish` is on for voice and footage.
 - `ingest` copies files and whole folders (`--move` only when the user asks) into `source/<type>/`, by extension and
   probe (an mp4 with only sound goes to audio). Names are made safe, Hebrew kept: `צילום #2 & גרסה.mov` becomes
   `צילום-2-גרסה.mov`, a clash gets `-2`. `--as brand` files a logo. A second ingest of the same files skips them.

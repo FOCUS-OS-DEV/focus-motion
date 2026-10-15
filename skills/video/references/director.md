@@ -84,8 +84,11 @@ When the choice is a matter of taste, offer the user two directions, one line ea
 
 ## 7. Sound
 
-Mark where the two or three biggest hits land and where silence helps. Music is used only when the user brings a
-file they are allowed to use.
+Music carries the feeling of a video; effects only point at moments. Plan the music first: where it starts, where
+its strong beat lands, where it drops under the words. It is a track the user is allowed to use, or none, with music
+added on the platform at upload. Then mark the one to three moments in each scene that get a small sound, and where
+silence helps. The sound is soft by default: no booms, crashes or glitches unless the user asked for a video that
+hits hard (`references/sound.md`).
 
 ## 8. Truth
 

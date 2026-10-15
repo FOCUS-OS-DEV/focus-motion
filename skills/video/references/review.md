@@ -17,6 +17,8 @@ Run it after every assembly. Nothing is shown before it passes and before you ha
    - size, frame rate, length and colour format;
    - loudness (-14 LUFS), true peak, and that sound and picture have the same length;
    - long silences in the voice;
+   - from the last mix: more than three heavy effects, more than 24 effects a minute, or a soundtrack of effects
+     only. Fix these by taking effects out and bringing in music (`references/sound.md`), not by turning them down;
    - the scene sources: a hyphen between Hebrew words, files loaded from the internet, CSS animation, text in a
      font with no `@font-face`, a video without `muted`, anything random or endless.
 

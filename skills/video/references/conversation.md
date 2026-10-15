@@ -57,7 +57,8 @@ matters to them.
 2. למי זה מיועד? (ברירת מחדל: אנשים שעוד לא מכירים אתכם)
 3. איפה זה יעלה? (ברירת מחדל: רילס, סרטון אנכי)
 4. כמה זמן? (ברירת מחדל: 20 עד 30 שניות)
-5. יש לוגו, צבעים, תמונות, צילומים או מוזיקה שלכם לשלב? (ברירת מחדל: אני מציע מראה, בלי מוזיקה)
+5. יש לוגו, צבעים, תמונות או צילומים שלכם לשלב? (ברירת מחדל: אני מציע מראה)
+6. מוזיקה: שיר נעים מחזיק סרטון הרבה יותר טוב מאפקטים. יש לכם קובץ שמותר לכם להשתמש בו? אם לא, אפשר להוריד שיר חינמי מספרייה עם רישיון ברור, ובריל אפשר גם להוסיף שיר מהספרייה של אינסטגרם בזמן ההעלאה. (ברירת מחדל: בלי מוזיקה, וצלילים קטנים ושקטים בלבד)
 ```
 
 Save the answers to `brief.md` in the project folder.
@@ -78,8 +79,9 @@ Then one line about the extras, with the defaults of the track:
 | Cutting silences in the voice | `voiceTighten` | n/a | yes | no (the cut list decides) |
 | Cutting mistakes and repeats from footage | `cuts` | n/a | n/a | yes |
 | Titles and animation | `graphics` | yes | yes | yes |
-| Sound effects | `sfx` | yes | yes | yes |
-| Music | `music` | only a file the user brings | same | same |
+| Sound effects | `sfx` | yes, few and small | same | same |
+| Sound style: `soft` (small, quiet effects) or `punchy` (booms and crashes, only when the user asks for a video that hits hard) | `sound` | soft | soft | soft |
+| Music | `music` | recommended: a file the user may use, or music added in the app at upload | same | same |
 | Voice clean-up | `voicePolish` | n/a | yes | yes |
 | A look test before the build | `lookTest` | yes | yes | yes |
 

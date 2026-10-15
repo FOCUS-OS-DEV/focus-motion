@@ -139,7 +139,7 @@ Read these before writing scenes:
   no randomness at play time.
 - `references/craft.md`: timing, peaks, camera, type, safe areas.
 - `references/hebrew.md`: every Hebrew word on screen.
-- `references/sound.md`: effects on the peaks, music only from the user's file, the mix.
+- `references/sound.md`: music first, a few soft effects, the mix.
 - `references/cookbook.md`: an index of proven code techniques, such as words on a voice, a live phone screen,
   particles and a clip in a card. Read only the snippet you need. Each one is a technique to adapt and restyle to
   this video's look. A snippet pasted unchanged makes every video look the same.
@@ -181,8 +181,8 @@ it in its folder, offer the one natural extra, and end with the sign-off.
    clean-up and graphics around them are fine. When the user asks that their voice stay exactly as recorded, even
    level only (`voice.mjs prep --no-polish`).
 5. **The user's files are never modified or deleted.** Work happens on copies inside the project.
-6. **Only what the user may use.** Music, logos, photos and clips come from the user. Another company's logo
-   appears only when the user asks for it.
+6. **Only what the user may use.** Music, logos, photos and clips come from the user. A track the user downloaded
+   from a free library under a clear licence counts. Another company's logo appears only when the user asks for it.
 7. **Nothing leaves the computer and nothing costs money.** No paid services and no uploads.
 8. **One current cut in the project folder.** Older cuts move to `_versions/`.
 9. **A note is a ruling.** Fix it where it was pointed at and everywhere else the same thing appears.

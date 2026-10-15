@@ -45,6 +45,9 @@
 //     av-length         audio and video lengths within 0.2 s                                           FAIL
 //     no-audio          the cut has no audio stream                                                    WARN
 //     voice-silence     a pause over 0.45 s inside audio/voice.wav (more than 14 dB under the speech)  WARN
+//     heavy-sound       more than 3 heavy effects (booms, crashes, glitches) in the last mix            WARN
+//     busy-sound        more than 24 effects a minute in the last mix (a burst of keys counts once)     WARN
+//     no-music          the last mix is effects only: no voice and no music                            WARN
 //   scenes              every scenes/<id>/index.html of the scene list
 //     hebrew-hyphen     a hyphen or dash between two Hebrew words in text that reaches the screen      FAIL
 //     nondeterministic  Math.random(, setTimeout(, setInterval(, requestAnimationFrame(, repeat: -1    FAIL
@@ -255,6 +258,17 @@ if (info && groups.has('audio')) {
           add('WARN', 'voice-silence', `${sec(s.seconds)} of silence in the voice at ${sec(s.t)}${inScene(s.t)}: tighten the pause, or cover it on purpose`, at(s.t, s.t_end));
         }
       } catch (e) { add('WARN', 'voice-silence', e.message); }
+    }
+    // The soundtrack as the last mix left it (audio/mix.json, written by mix.mjs).
+    let last = null;
+    try { last = JSON.parse(fs.readFileSync(path.join(root, 'audio', 'mix.json'), 'utf8')).last || null; } catch { last = null; }
+    if (!last) skipped.push('heavy-sound, busy-sound, no-music: no record of the last mix (mix the project with this version of mix.mjs)');
+    else {
+      const perMinute = last.seconds > 0 ? round(last.events / (last.seconds / 60), 1) : 0;
+      Object.assign(measured, { sound: last.sound, effects: last.effects, effectsPerMinute: perMinute, heavyEffects: last.heavy, music: last.music });
+      if (last.heavy > 3) add('WARN', 'heavy-sound', `${last.heavy} heavy effects (booms, crashes, glitches) in the mix: they make a video sound harsh. Keep them for the one to three peaks the plan names, or mix with the soft sound`);
+      if (perMinute > 24) add('WARN', 'busy-sound', `${perMinute} effects a minute: sound on everything is noise. Keep one to three a scene, on the moments that matter`);
+      if (!last.music && !last.voice && last.effects > 0) add('WARN', 'no-music', 'the soundtrack is effects only. A music track the user may use carries the video; see references/sound.md, Music');
     }
   }
 }

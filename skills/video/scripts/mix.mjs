@@ -6,16 +6,20 @@
 // Usage:
 //   node mix.mjs <project> [--voice <file> | --no-voice]
 //                          [--music <file> [--music-start 0] [--hit <seconds>] [--music-lufs -24] [--duck 0.7] | --no-music]
-//                          [--no-sfx] [--sfx-gain 1.25] [--seams | --no-seams] [-o audio/mix.wav]
+//                          [--no-sfx] [--sound soft | --sound punchy] [--sfx-gain 0.8] [--seams | --no-seams]
+//                          [-o audio/mix.wav]
 //
 //   Every part is optional; the mix is made of what exists.
-//   Effects   audio/cues.json plus scenes/<id>/cues.json (scene-local seconds): [{ "t": 12.34, "kind": "hit", "gain": 0.8 }]
-//             kinds: hit impact whoosh pop tick click key glitch shatter rise ding sparkle sub. Optional "pan": -1..1.
-//             --seams adds a soft whoosh on every scene cut that has no whoosh within 0.3 s.
+//   Effects   audio/cues.json plus scenes/<id>/cues.json (scene-local seconds): [{ "t": 12.34, "kind": "pop", "gain": 0.5 }]
+//             kinds: pop tick click key whoosh rise ding sparkle, and the heavy ones hit impact sub glitch shatter.
+//             Optional "pan": -1..1. --seams adds a soft whoosh on every scene cut that has no whoosh within 0.3 s.
+//   Sound     soft (the default): the softer copies of the light effects at 0.8, and the heavy ones left out.
+//             punchy: every effect at full strength (1.25), booms included, for a video the user asked to hit hard.
+//             "sound" in features of project.json sets it too. With music, the effects sit lower, under the music.
 //   Voice     audio/voice.wav when it exists, untouched and in the centre.
 //   Music     --music-start is where the track starts playing. --hit moves that start a little so a strong beat
 //             lands on that second of the video. --duck is how far the music drops under the voice (0..1).
-//   Memory    the music options and --seams are saved in audio/mix.json; a later plain `mix.mjs <project>` repeats
+//   Memory    the music options, --sound and --seams are saved in audio/mix.json; a later plain `mix.mjs <project>` repeats
 //             them. A flag on the command line always wins. "features" in project.json can switch music or sfx off.
 //   FOCUS_MOTION_BEATS=onsets finds the beats with the built-in detector instead of the engine.
 //
@@ -37,7 +41,10 @@ const MAX_TRUE_PEAK = -1;     // dBTP on the WAV master; the AAC encode adds abo
 const CEILING = -1;           // where the limiter holds the peaks (it looks at the true peaks, at 4x the sample rate)
 const AAC_MAX = -0.7;         // dBTP of the AAC test copy; the gate fails a cut above -0.5
 const SFX_UNDER_VOICE = 0.3;  // effects drop this much while the voice speaks, so words stay on top
-const SEAM = { gain: 0.4, clear: 0.3 };
+const SEAM = { gain: 0.4, softGain: 0.25, clear: 0.3 };
+const SOUNDS = ['soft', 'punchy'];
+const UNDER_MUSIC = 0.75;     // with music the effects drop to this, so the music carries the video and they sit under it
+const SOFT_EVENTS = 3;        // the soft sound wants at most this many effects in a scene (a burst of keys counts once)
 const VOICE_LUFS = -16;       // the level voice.mjs prep delivers; the effects and the music are balanced against it
 const MUSIC_FADE_OUT = 1.5;   // seconds
 const DEFAULTS = { musicStart: 0, musicLufs: -24, duck: 0.7 };
@@ -45,8 +52,13 @@ const DEFAULTS = { musicStart: 0, musicLufs: -24, duck: 0.7 };
 const round = (x, d = 3) => Math.round(x * 10 ** d) / 10 ** d;
 
 // ---------- the effects library ----------
-export function loadSfx(dir = SFX_DIR) {
+// The soft sound plays the softer copy of each light effect; the punchy sound plays the files as they are.
+export function loadSfx(dir = SFX_DIR, { sound = 'punchy' } = {}) {
   const meta = readJson(path.join(dir, 'sfx.json'));
+  const sounds = {};
+  for (const [kind, s] of Object.entries(meta.sounds)) {
+    sounds[kind] = sound === 'soft' && s.soft ? { ...s, file: s.soft, mirror: s.softMirror || s.mirror } : s;
+  }
   const cache = new Map();
   const file = (name) => {
     if (!cache.has(name)) {
@@ -56,17 +68,30 @@ export function loadSfx(dir = SFX_DIR) {
     }
     return cache.get(name);
   };
-  return { gain: Number(meta.gain) || 1, sounds: meta.sounds, file };
+  const gain = sound === 'soft' ? Number(meta.softGain) || 0.8 : Number(meta.gain) || 1;
+  return { gain, sound, sounds, file };
+}
+
+// Effects that land within 0.35 s of the one before, of the same kind, are one event: a burst of keys, a run of ticks.
+export function countEvents(cues) {
+  let n = 0, last = null;
+  for (const c of cues) {
+    if (!last || c.kind !== last.kind || c.t - last.t > 0.35) n++;
+    last = c;
+  }
+  return n;
 }
 
 // ---------- cues ----------
 // Reads audio/cues.json and every scenes/<id>/cues.json (scene-local seconds), checks each cue, adds the seam
-// whooshes, and returns the cues in time order plus the ones that were left out.
+// whooshes, and returns the cues in time order plus the ones that were left out. The soft sound leaves the heavy
+// effects out on purpose: they are listed in `heavy`, not in `skipped`, which holds mistakes.
 export function collectCues(root, project, sfx, { seams = false } = {}) {
   const scenes = project.scenes || [];
   const duration = scenes.length ? Number(scenes[scenes.length - 1].end) : 0;
-  const cues = [], skipped = [];
-  const take = (list, where, shift = 0, limit = Infinity) => {
+  const soft = sfx.sound === 'soft';
+  const cues = [], skipped = [], heavy = [];
+  const take = (list, where, shift = 0, limit = Infinity, scene = null) => {
     if (!Array.isArray(list)) { skipped.push({ where, reason: 'the file is not a list of cues' }); return; }
     list.forEach((c, i) => {
       const at = `${where} #${i + 1}`;
@@ -80,26 +105,27 @@ export function collectCues(root, project, sfx, { seams = false } = {}) {
       if (local < 0 || local > limit + 0.05) return skipped.push({ where: at, reason: `t ${local} is outside its scene` });
       const t = local + shift;
       if (t > duration) return skipped.push({ where: at, reason: `t ${round(t)} is after the end of the video` });
-      cues.push({ t, kind: c.kind, gain: Math.min(gain, 2), pan: pan === null ? null : Math.max(-1, Math.min(1, pan)), where: at });
+      if (soft && sfx.sounds[c.kind].heavy) return heavy.push({ where: at, kind: c.kind });
+      cues.push({ t, kind: c.kind, gain: Math.min(gain, 2), pan: pan === null ? null : Math.max(-1, Math.min(1, pan)), where: at, scene });
     });
   };
   const main = path.join(root, 'audio', 'cues.json');
   if (fs.existsSync(main)) take(readJson(main), 'audio/cues.json');
   for (const sc of scenes) {
     const f = path.join(root, 'scenes', String(sc.id), 'cues.json');
-    if (fs.existsSync(f)) take(readJson(f), `scenes/${sc.id}/cues.json`, Number(sc.start) || 0, Number(sc.end) - Number(sc.start));
+    if (fs.existsSync(f)) take(readJson(f), `scenes/${sc.id}/cues.json`, Number(sc.start) || 0, Number(sc.end) - Number(sc.start), String(sc.id));
   }
   let seamCount = 0;
   if (seams) {
     for (const sc of scenes.slice(1)) {
       const t = Number(sc.start);
       if (cues.some((c) => c.kind === 'whoosh' && Math.abs(c.t - t) < SEAM.clear)) continue;
-      cues.push({ t, kind: 'whoosh', gain: SEAM.gain, pan: null, where: `seam ${sc.id}`, seam: true });
+      cues.push({ t, kind: 'whoosh', gain: soft ? SEAM.softGain : SEAM.gain, pan: null, where: `seam ${sc.id}`, seam: true });
       seamCount++;
     }
   }
   cues.sort((a, b) => a.t - b.t);   // stable: equal times keep their order
-  return { cues, skipped, seamCount, duration };
+  return { cues, skipped, heavy, seamCount, duration };
 }
 
 // ---------- the effects bed ----------
@@ -379,6 +405,10 @@ async function main() {
   // What goes in. A flag wins, then "features" in project.json, then the last run, then the default.
   const useSfx = args.sfx !== undefined ? args.sfx : features.sfx !== false;
   const seams = args.seams !== undefined ? args.seams : Boolean(saved.seams);
+  const sound = args.sound !== undefined ? String(args.sound) : features.sound !== undefined ? String(features.sound) : saved.sound || 'soft';
+  if (!SOUNDS.includes(sound)) die(`the sound is soft or punchy, not "${sound}"`, 2);
+  // A level remembered from the other sound does not carry over when the sound changes.
+  const savedGain = Number(saved.sfxGain) > 0 && (!saved.sound || saved.sound === sound) ? Number(saved.sfxGain) : null;
   const sfxGainArg = args['sfx-gain'] !== undefined ? numberArg(args['sfx-gain'], '--sfx-gain', { min: 0, max: 4 }) : null;
 
   let voiceFile = null;
@@ -423,15 +453,30 @@ async function main() {
 
   // The effects.
   let bed = [new Float32Array(frames), new Float32Array(frames)];
-  let cueInfo = { cues: [], skipped: [], seamCount: 0 };
-  let sfxGain = null;
+  let cueInfo = { cues: [], skipped: [], heavy: [], seamCount: 0 };
+  let sfxGain = null, heavyPlayed = 0;
   if (useSfx) {
-    const sfx = loadSfx();
-    sfxGain = sfxGainArg ?? (Number(saved.sfxGain) > 0 ? Number(saved.sfxGain) : sfx.gain);
+    const sfx = loadSfx(SFX_DIR, { sound });
+    sfxGain = sfxGainArg ?? savedGain ?? sfx.gain;
+    const chosen = sfxGainArg !== null || savedGain !== null;   // a level the user set is used exactly
+    if (music && !chosen) sfxGain = round(sfxGain * UNDER_MUSIC, 3);
     cueInfo = collectCues(root, project, sfx, { seams });
+    heavyPlayed = cueInfo.cues.filter((c) => sfx.sounds[c.kind]?.heavy).length;
+    if (cueInfo.heavy.length) {
+      const kinds = [...new Set(cueInfo.heavy.map((h) => h.kind))].join(', ');
+      notes.push(`the soft sound left out ${cueInfo.heavy.length} heavy effects (${kinds}). Leave them out of the cue files, or mix with --sound punchy only when the user asked for a video that hits hard`);
+    }
+    if (sound === 'soft') {
+      const busy = scenes.map((sc) => ({ id: String(sc.id), n: countEvents(cueInfo.cues.filter((c) => c.scene === String(sc.id))) }))
+        .filter((s) => s.n > SOFT_EVENTS);
+      if (busy.length) notes.push(`more than ${SOFT_EVENTS} effects in ${busy.map((s) => `${s.id} (${s.n})`).join(', ')}: the soft sound keeps 1 to ${SOFT_EVENTS} a scene, on the moments that matter`);
+    }
     bed = buildBed(cueInfo.cues, frames, sfx, sfxGain);
     roundPeaks(bed[0], bed[1]);
     note(`effects: ${cueInfo.cues.length} cues${cueInfo.seamCount ? ` (${cueInfo.seamCount} seam whooshes)` : ''}${cueInfo.skipped.length ? `, ${cueInfo.skipped.length} left out` : ''}`);
+  }
+  if (!music && cueInfo.cues.length) {
+    notes.push('there is no music. A track the user may use carries a video better than effects do: their own file, a free library with a clear licence, or, for a reel, music added in the app at upload (references/sound.md, Music)');
   }
   if (!cueInfo.cues.length && !voiceFile && !music) {
     die('nothing to mix: no cues, no voice and no music. Add cues to audio/cues.json or scenes/<id>/cues.json, or assemble with --no-audio', 1);
@@ -514,9 +559,14 @@ async function main() {
   });
 
   // Remember the options, so a plain `mix.mjs <project>` repeats this mix.
-  const memory = { seams, sfxGain: sfxGainArg ?? (Number(saved.sfxGain) > 0 ? Number(saved.sfxGain) : undefined) };
+  const memory = { seams, sound, sfxGain: sfxGainArg ?? savedGain ?? undefined };
   if (music) memory.music = { file: portable(root, music.file), musicStart: music.musicStart, hit: music.hit, musicLufs: music.musicLufs, duck: music.duck };
   else if (!args['no-music'] && saved.music) memory.music = saved.music;   // switched off by features: kept for later
+  // What the last mix holds, for the gate: check.mjs reads it to warn about a busy or heavy soundtrack.
+  memory.last = {
+    sound, music: Boolean(music), voice: Boolean(voiceFile), seconds: round(frames / SR, 2),
+    effects: cueInfo.cues.length, events: countEvents(cueInfo.cues), heavy: heavyPlayed,
+  };
   writeJson(memoryFile, memory);
 
   const { after } = result.master;
@@ -529,7 +579,7 @@ async function main() {
     ok,
     out: fwd(outFile),
     seconds: round(frames / SR, 3),
-    sfx: useSfx ? { cues: cueInfo.cues.length, seams: cueInfo.seamCount, gain: sfxGain, kinds, skipped: cueInfo.skipped } : null,
+    sfx: useSfx ? { sound, cues: cueInfo.cues.length, seams: cueInfo.seamCount, gain: sfxGain, kinds, heavyLeftOut: cueInfo.heavy.length, skipped: cueInfo.skipped } : null,
     voice: result.voice,
     music: result.music,
     loudness: { lufs: after.I, truePeak: after.TP, truePeakAac: enc, range: after.LRA },
