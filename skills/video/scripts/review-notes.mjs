@@ -68,7 +68,7 @@ const SETTLE_MS = 1500; // a video written to this recently is taken to be still
 
 // mtime: null until the video was looked at, 0 while it is missing, else seconds since 1970 (as the page gets it)
 // fromServe: this process is a server that serve started in the background; it reports to serve and logs to a file
-const state = { video: '', mtime: null, done: false, pageSeen: 0, notesProblem: '', server: null, fromServe: false, logFile: '' };
+const state = { video: '', mtime: null, done: false, doneOn: '', pageSeen: 0, notesProblem: '', server: null, fromServe: false, logFile: '' };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const stem = (video) => video.slice(0, video.length - path.extname(video).length);
@@ -182,6 +182,15 @@ function current() {
     pid: process.pid,
     page: Date.now() - state.pageSeen < PAGE_ALIVE_MS,
   };
+}
+
+// A done click belongs to the version of the cut it was made on. A new render, written over the same file or to
+// another one, clears it, so a wait started for the new version is not woken by a click on the old one.
+const versionOf = () => `${state.video}|${current().mtime}`;
+
+function isDone() {
+  if (state.done && state.doneOn !== versionOf()) state.done = false;
+  return state.done;
 }
 
 function send(res, status, body, type = 'application/json; charset=utf-8', extra = {}) {
@@ -363,7 +372,7 @@ async function handle(req, res) {
       return send(res, 200, current());
     }
     if (route === '/notes') return send(res, 200, await loadNotes());
-    if (route === '/done-state') return send(res, 200, { done: state.done, notes: (await loadNotes()).length });
+    if (route === '/done-state') return send(res, 200, { done: isDone(), notes: (await loadNotes()).length });
     if (route === '/video') return sendVideo(req, res);
     return send(res, 404, {});
   }
@@ -384,6 +393,7 @@ async function handle(req, res) {
       }
       if (route === '/notes') return send(res, 200, { ok: true });
       state.done = true;
+      state.doneOn = versionOf();
       log('the reviewer is done');
       return send(res, 200, { ok: true, done: true, notes: (await loadNotes()).length });
     }
