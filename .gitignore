@@ -10,3 +10,5 @@ Thumbs.db
 *.webm
 __pycache__/
 *.pyc
+.env
+.env.*
