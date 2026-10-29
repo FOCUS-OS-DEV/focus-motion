@@ -80,6 +80,15 @@ How to place them:
 A cue with an unknown kind, no time, or a time outside its scene is left out and listed in `sfx.skipped` in the
 result. Fix it and mix again.
 
+## A project's own effects
+
+When the thirteen kinds do not fit a moment (an error, a stamp, paper, a lock, a crowd), put the right recording in
+`source/audio/sfx/` of the project (48 kHz) and describe it in `source/audio/sfx/sfx.json`, in the same format as the
+engine's: `{ "sounds": { "<name>": { "file": "<name>.wav", "preroll": 0, "level": 0.5, "field": "centre",
+"seconds": 0.4 } } }`. The mix merges these kinds with the engine's (a project's name wins), so a cue
+`{ "t": 1.2, "kind": "<name>" }` plays it. `"heavy": true` keeps it out of the soft sound. Use only recordings whose
+licence allows your videos.
+
 ## Music in the mix
 
 - `--music-start <seconds>`: where in the track to start, to skip an intro or to begin on the strong part.
