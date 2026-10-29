@@ -53,16 +53,26 @@ const round = (x, d = 3) => Math.round(x * 10 ** d) / 10 ** d;
 
 // ---------- the effects library ----------
 // The soft sound plays the softer copy of each light effect; the punchy sound plays the files as they are.
-export function loadSfx(dir = SFX_DIR, { sound = 'punchy' } = {}) {
+// A project can bring its own effects: <project>/source/audio/sfx/sfx.json in this same format (file, preroll, level,
+// field, to, seconds, heavy), with the files beside it, e.g. picked from a sound library. Its kinds are merged with the
+// engine's (the project's win on the same name), so a cue { "t": 1.2, "kind": "<its name>" } just works.
+export function loadSfx(dir = SFX_DIR, { sound = 'punchy', project = null } = {}) {
   const meta = readJson(path.join(dir, 'sfx.json'));
   const sounds = {};
   for (const [kind, s] of Object.entries(meta.sounds)) {
     sounds[kind] = sound === 'soft' && s.soft ? { ...s, file: s.soft, mirror: s.softMirror || s.mirror } : s;
   }
+  const own = project ? path.join(project, 'source', 'audio', 'sfx') : null;
+  if (own && fs.existsSync(path.join(own, 'sfx.json'))) {
+    const at = (f) => (f ? path.resolve(own, f) : undefined);
+    for (const [kind, s] of Object.entries(readJson(path.join(own, 'sfx.json')).sounds || {})) {
+      if (s && s.file) sounds[kind] = { ...s, file: at(s.file), mirror: at(s.mirror), level: Number(s.level) || 1, own: true };
+    }
+  }
   const cache = new Map();
   const file = (name) => {
     if (!cache.has(name)) {
-      const w = readWav(path.join(dir, name));
+      const w = readWav(path.isAbsolute(name) ? name : path.join(dir, name));
       if (w.sampleRate !== SR) throw new Error(`${name} is ${w.sampleRate} Hz, the effects must be ${SR} Hz`);
       cache.set(name, w.channels);
     }
@@ -456,7 +466,7 @@ async function main() {
   let cueInfo = { cues: [], skipped: [], heavy: [], seamCount: 0 };
   let sfxGain = null, heavyPlayed = 0;
   if (useSfx) {
-    const sfx = loadSfx(SFX_DIR, { sound });
+    const sfx = loadSfx(SFX_DIR, { sound, project: root });
     sfxGain = sfxGainArg ?? savedGain ?? sfx.gain;
     const chosen = sfxGainArg !== null || savedGain !== null;   // a level the user set is used exactly
     if (music && !chosen) sfxGain = round(sfxGain * UNDER_MUSIC, 3);
